@@ -20,13 +20,6 @@ public class ElevenLabsService : IDisposable
 
     public bool IsPlaying => _player?.PlaybackState == PlaybackState.Playing;
 
-    /// <summary>
-    /// Fires on the thread pool immediately before audio playback begins —
-    /// after the MP3 has been fetched and decoded. CompanionManager transitions
-    /// to AppState.Speaking here so the spinner runs through the entire HTTP fetch.
-    /// </summary>
-    public event Action? PlaybackStarting;
-
     public ElevenLabsService(AppSettings settings)
     {
         _settings = settings;
@@ -34,13 +27,16 @@ public class ElevenLabsService : IDisposable
 
     /// <summary>
     /// Synthesizes text to speech and plays it. Returns when playback completes.
+    /// <paramref name="onPlaybackStarting"/> runs right before audio starts — after the MP3
+    /// has been fetched and decoded — so the caller's spinner covers the whole HTTP fetch.
     /// </summary>
-    public async Task SpeakAsync(string text, CancellationToken ct = default)
+    public async Task SpeakAsync(string text, Action? onPlaybackStarting, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
 
         byte[] mp3 = await FetchAudioAsync(text, ct);
-        await PlayMp3Async(mp3, ct);
+        ct.ThrowIfCancellationRequested();
+        await PlayMp3Async(mp3, onPlaybackStarting, ct);
     }
 
     public void StopPlayback()
@@ -87,7 +83,7 @@ public class ElevenLabsService : IDisposable
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
-    private async Task PlayMp3Async(byte[] mp3Bytes, CancellationToken ct)
+    private async Task PlayMp3Async(byte[] mp3Bytes, Action? onPlaybackStarting, CancellationToken ct)
     {
         // Dispose previous player
         _player?.Dispose();
@@ -95,20 +91,25 @@ public class ElevenLabsService : IDisposable
 
         var ms = new MemoryStream(mp3Bytes);
         _reader = new Mp3FileReader(ms);
-        _player = new WasapiOut();
-        _player.Init(_reader);
+        var player = new WasapiOut();
+        _player = player;
+        player.Init(_reader);
 
-        var tcs = new TaskCompletionSource<bool>();
-        _player.PlaybackStopped += (_, _) => tcs.TrySetResult(true);
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        player.PlaybackStopped += (_, e) =>
+        {
+            if (e.Exception != null) tcs.TrySetException(e.Exception);
+            else tcs.TrySetResult();
+        };
 
         using var reg = ct.Register(() =>
         {
-            _player.Stop();
-            tcs.TrySetCanceled();
+            player.Stop();
+            tcs.TrySetCanceled(ct);
         });
 
-        PlaybackStarting?.Invoke();
-        _player.Play();
+        onPlaybackStarting?.Invoke();
+        player.Play();
         await tcs.Task;
     }
 

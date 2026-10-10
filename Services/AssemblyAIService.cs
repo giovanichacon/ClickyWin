@@ -1,183 +1,265 @@
 using System.Net.WebSockets;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 using ClickyWindows.Helpers;
 
 namespace ClickyWindows.Services;
 
 /// <summary>
-/// Streams PCM16 audio to AssemblyAI's real-time transcription WebSocket API (v3).
+/// One push-to-talk transcription session over AssemblyAI Streaming v3.
 ///
-/// AssemblyAI Streaming v3 protocol (corrected):
-///   URL:     wss://streaming.assemblyai.com/v3/ws
-///   Params:  ?sample_rate=16000&encoding=pcm_s16le&speech_model=u3-rt-pro
-///   Auth:    Authorization: {api_key}  (request header)
-///   Audio:   binary PCM16 frames (little-endian, 50–1000ms chunks)
+///   URL:    wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&amp;encoding=pcm_s16le&amp;speech_model=…
+///   Auth:   Authorization: {api_key}
+///   Audio:  binary PCM16 frames, 50–1000 ms each (we send 100 ms)
+///   Client: {"type":"ForceEndpoint"} ends the current turn now;
+///           {"type":"Terminate"} flushes, sends final Turns, then "Termination", then closes 1000
+///   Server: "Begin", "Turn" {turn_order, transcript, end_of_turn}, "Termination"
 ///
-///   Server → Client message types (field: "type"):
-///     "Begin"       – session started  { id, expires_at }
-///     "Turn"        – transcript       { transcript, end_of_turn, words, ... }
-///     "Termination" – session ended    { audio_duration_seconds, session_duration_seconds }
+/// Audio can be enqueued before the socket is open: everything goes through one outbox
+/// channel drained by a single send loop, so the first words spoken while connecting are
+/// kept (pre-roll) and ClientWebSocket never sees concurrent SendAsync calls.
 ///
-///   Client → Server control (JSON text frame):
-///     {"force_end_utterance": true}   — finalize current turn immediately
+/// The model ends a turn on short pauses, so a single press can produce several turns;
+/// they are all kept and joined in turn order.
 /// </summary>
-public class AssemblyAIService : IAsyncDisposable
+public sealed class AssemblyAIService : IAsyncDisposable
 {
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(8);
+    private static readonly byte[] ForceEndpointMessage = """{"type":"ForceEndpoint"}"""u8.ToArray();
+    private static readonly byte[] TerminateMessage = """{"type":"Terminate"}"""u8.ToArray();
+
+    private readonly record struct Outgoing(byte[] Payload, WebSocketMessageType Type);
+
     private readonly string _apiKey;
-    private ClientWebSocket? _ws;
-    private CancellationTokenSource? _cts;
-    private int _messagesReceived;
+    private readonly Uri _uri;
+    private readonly ClientWebSocket _ws = new();
+    private readonly CancellationTokenSource _cts = new();
+    private readonly Channel<Outgoing> _outbox =
+        Channel.CreateUnbounded<Outgoing>(new UnboundedChannelOptions { SingleReader = true });
+    private readonly TaskCompletionSource _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public event Action<string>? InterimTranscriptReceived;
-    public event Action<string>? FinalTranscriptReceived;
-    /// <summary>
-    /// Fires when the WebSocket receive loop exits for any reason (clean close, error, cancellation).
-    /// CompanionManager uses this to unblock the transcript TCS immediately instead of timing out.
-    /// </summary>
-    public event Action? ReceiveLoopEnded;
+    private readonly SortedDictionary<int, string> _turns = new();
+    private readonly object _turnsLock = new();
 
-    public bool IsConnected => _ws?.State == WebSocketState.Open;
+    private Task _connect = Task.CompletedTask;
+    private Task _sendLoop = Task.CompletedTask;
+    private Task _receiveLoop = Task.CompletedTask;
+    private int _audioFrames;
+    private int _disposed;
 
-    public AssemblyAIService(string apiKey)
+    /// <summary>Set when the session failed (connect error, abnormal close). Null on success.</summary>
+    public string? Error { get; private set; }
+
+    public AssemblyAIService(string apiKey, string speechModel)
     {
         _apiKey = apiKey;
+        _uri = new Uri("wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le" +
+                       $"&speech_model={Uri.EscapeDataString(speechModel)}");
     }
 
-    public async Task ConnectAsync(CancellationToken ct = default)
+    /// <summary>Queues a PCM16 frame. Callable from any thread, before or after the socket opens.</summary>
+    public void EnqueueAudio(byte[] pcm16)
     {
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _ws = new ClientWebSocket();
-        _ws.Options.SetRequestHeader("Authorization", _apiKey);
-
-        // u3-rt-pro = Universal-3 Real-Time Pro (highest accuracy, ~300ms latency)
-        var uri = new Uri("wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&speech_model=u3-rt-pro");
-        await _ws.ConnectAsync(uri, _cts.Token);
-
-        _ = ReceiveLoopAsync(_cts.Token);
+        if (_outbox.Writer.TryWrite(new Outgoing(pcm16, WebSocketMessageType.Binary)))
+            Interlocked.Increment(ref _audioFrames);
     }
 
-    public async Task SendAudioAsync(byte[] pcm16Chunk, CancellationToken ct = default)
-    {
-        if (_ws?.State != WebSocketState.Open) return;
-        await _ws.SendAsync(new ArraySegment<byte>(pcm16Chunk), WebSocketMessageType.Binary, true, ct);
-    }
+    /// <summary>Connects and starts the send/receive loops. Never throws; failures set <see cref="Error"/>.</summary>
+    public Task ConnectAsync() => _connect = ConnectCoreAsync();
 
-    public async Task FinalizeAsync(CancellationToken ct = default)
+    private async Task ConnectCoreAsync()
     {
-        if (_ws?.State != WebSocketState.Open)
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        timeout.CancelAfter(ConnectTimeout);
+        try
         {
-            Logger.Log("[ASR] FinalizeAsync: WebSocket not open");
+            _ws.Options.SetRequestHeader("Authorization", _apiKey);
+            await _ws.ConnectAsync(_uri, timeout.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            if (!_cts.IsCancellationRequested)
+                Fail(timeout.IsCancellationRequested ? "connection timed out" : ex.Message);
+            _ended.TrySetResult();
             return;
         }
-        // v3 control message — force end of current turn
-        var msg = JsonSerializer.Serialize(new { force_end_utterance = true });
-        Logger.Log($"[ASR] Sending: {msg}");
-        var bytes = Encoding.UTF8.GetBytes(msg);
-        await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+
+        if (_cts.IsCancellationRequested)
+        {
+            _ended.TrySetResult();
+            return;
+        }
+        Logger.Log("[ASR] Connected");
+        _receiveLoop = ReceiveLoopAsync(_cts.Token);
+        _sendLoop = SendLoopAsync(_cts.Token);
+    }
+
+    /// <summary>
+    /// Call after the last audio frame was enqueued. Ends the turn, asks the server to flush,
+    /// and waits for the Termination message. Returns every turn joined in order.
+    /// </summary>
+    public async Task<string> FinishAsync(TimeSpan timeout, CancellationToken ct)
+    {
+        _outbox.Writer.TryWrite(new Outgoing(ForceEndpointMessage, WebSocketMessageType.Text));
+        _outbox.Writer.TryWrite(new Outgoing(TerminateMessage, WebSocketMessageType.Text));
+        _outbox.Writer.TryComplete();
+
+        try
+        {
+            await _ended.Task.WaitAsync(timeout, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Logger.Log($"[ASR] No Termination within {timeout.TotalSeconds:F0} s — using turns received so far");
+        }
+
+        var transcript = CombinedTranscript();
+        Logger.Log($"[ASR] Final transcript ({_audioFrames} frames sent): \"{transcript}\"");
+        return transcript;
+    }
+
+    private async Task SendLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var msg in _outbox.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                if (_ws.State != WebSocketState.Open) break;
+                await _ws.SendAsync(msg.Payload, msg.Type, endOfMessage: true, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException)
+        {
+            Logger.Log($"[ASR] Send stopped: {ex.Message}");
+        }
     }
 
     private async Task ReceiveLoopAsync(CancellationToken ct)
     {
-        var buffer = new byte[65536];
-        var sb = new StringBuilder();
-
+        var buffer = new byte[16 * 1024];
+        var message = new MemoryStream();
         try
         {
-            while (_ws?.State == WebSocketState.Open && !ct.IsCancellationRequested)
+            while (_ws.State == WebSocketState.Open)
             {
-                var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-
+                var result = await _ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    Logger.Log($"[ASR] Closed by server: {_ws.CloseStatus} {_ws.CloseStatusDescription}");
+                    var status = _ws.CloseStatus;
+                    if (status is not (WebSocketCloseStatus.NormalClosure or null))
+                    {
+                        if (Error == null) Fail($"closed {(int)status!} {_ws.CloseStatusDescription}");
+                    }
+                    else
+                        Logger.Log("[ASR] Closed normally");
                     break;
                 }
 
-                sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                message.Write(buffer, 0, result.Count);
                 if (!result.EndOfMessage) continue;
 
-                var raw = sb.ToString();
-                sb.Clear();
-
-                _messagesReceived++;
-                Logger.Log($"[ASR] Msg #{_messagesReceived}: {raw}");
-                ParseMessage(raw);
+                HandleMessage(Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length));
+                message.SetLength(0);
             }
         }
         catch (OperationCanceledException) { }
-        catch (WebSocketException ex)
+        catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException)
         {
-            Logger.Log($"[ASR] WebSocket error: {ex.Message}");
+            if (!ct.IsCancellationRequested) Fail(ex.Message);
         }
         finally
         {
-            // Always fire so CompanionManager can unblock the TCS immediately
-            // rather than waiting for the full 5-second timeout.
-            ReceiveLoopEnded?.Invoke();
+            _ended.TrySetResult();
         }
     }
 
-    private void ParseMessage(string json)
+    private void HandleMessage(string json)
     {
-        try
-        {
-            var node = JsonNode.Parse(json);
-            if (node == null) return;
-
-            var type = node["type"]?.GetValue<string>();
-
-            switch (type)
-            {
-                case "Begin":
-                    Logger.Log($"[ASR] Session begun (id={node["id"]?.GetValue<string>()})");
-                    break;
-
-                case "Turn":
-                    // v3 uses a single "Turn" message for both interim and final.
-                    // end_of_turn=false → interim, end_of_turn=true → final/complete turn
-                    var transcript = node["transcript"]?.GetValue<string>() ?? "";
-                    var endOfTurn = node["end_of_turn"]?.GetValue<bool>() ?? false;
-
-                    if (endOfTurn)
-                    {
-                        // Always fire for final turns, including empty ones (silence).
-                        // CompanionManager resolves the TCS immediately; empty string
-                        // is treated as "nothing heard" upstream.
-                        FinalTranscriptReceived?.Invoke(transcript);
-                    }
-                    else if (!string.IsNullOrWhiteSpace(transcript))
-                    {
-                        InterimTranscriptReceived?.Invoke(transcript);
-                    }
-                    break;
-
-                case "Termination":
-                    Logger.Log($"[ASR] Session terminated: audio={node["audio_duration_seconds"]}s");
-                    break;
-
-                default:
-                    Logger.Log($"[ASR] Unknown message type: {type ?? "(null)"}");
-                    break;
-            }
-        }
+        JsonNode? node;
+        try { node = JsonNode.Parse(json); }
         catch (Exception ex)
         {
-            Logger.Log($"[ASR] Parse error: {ex.Message} — raw: {json}");
+            Logger.Log($"[ASR] Unparseable message ({ex.Message}): {json}");
+            return;
         }
+        if (node == null) return;
+
+        switch (node["type"]?.GetValue<string>())
+        {
+            case "Begin":
+                // Unknown parameters are ignored rather than rejected, so log the model actually used
+                Logger.Log($"[ASR] Session began, model={node["configuration"]?["model"]?.ToString() ?? "?"}");
+                break;
+
+            case "Turn":
+                int order = node["turn_order"]?.GetValue<int>() ?? 0;
+                string text = node["transcript"]?.GetValue<string>() ?? "";
+                bool endOfTurn = node["end_of_turn"]?.GetValue<bool>() ?? false;
+                lock (_turnsLock)
+                    _turns[order] = text; // later messages for a turn supersede earlier ones
+                if (endOfTurn)
+                    Logger.Log($"[ASR] Turn {order} ended: \"{text}\"");
+                break;
+
+            case "Termination":
+                Logger.Log($"[ASR] Termination (audio {node["audio_duration_seconds"]} s)");
+                _ended.TrySetResult();
+                break;
+
+            case "SpeechStarted":
+                break;
+
+            case "Error":
+                // e.g. {"type":"Error","error_code":1008,"error":"Unauthorized Connection: Invalid API key"},
+                // sent right before the server closes the socket
+                Fail($"{node["error_code"]} {node["error"]?.GetValue<string>() ?? json}");
+                break;
+
+            default:
+                Logger.Log($"[ASR] Message: {json}");
+                break;
+        }
+    }
+
+    private string CombinedTranscript()
+    {
+        lock (_turnsLock)
+            return string.Join(" ", _turns.Values.Select(t => t.Trim()).Where(t => t.Length > 0));
+    }
+
+    private void Fail(string reason)
+    {
+        Error ??= reason;
+        Logger.Error($"[ASR] {reason}");
     }
 
     public async ValueTask DisposeAsync()
     {
-        Logger.Log($"[ASR] Disposing (msgs received: {_messagesReceived})");
-        _cts?.Cancel();
-        if (_ws?.State == WebSocketState.Open)
+        if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+
+        _outbox.Writer.TryComplete();
+        _cts.Cancel();
+        try
         {
-            try { await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); }
-            catch { }
+            // Connect first: it is what assigns the loop tasks
+            await _connect.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            await Task.WhenAll(_sendLoop, _receiveLoop).WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
         }
-        _ws?.Dispose();
-        _cts?.Dispose();
+        catch { /* loops swallow their own errors; a timeout here just means we abort */ }
+
+        if (_ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
+        {
+            try
+            {
+                using var closeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+                await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", closeTimeout.Token)
+                    .ConfigureAwait(false);
+            }
+            catch { _ws.Abort(); }
+        }
+        _ws.Dispose();
+        // _cts is deliberately not disposed: a connect racing with dispose may still read its token
     }
 }

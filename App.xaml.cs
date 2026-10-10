@@ -18,26 +18,35 @@ public partial class App
     private MainWindow? _mainWindow;
     private AppSettings _settings = new();
 
+    // Held in a field for the whole process lifetime: a local would be collected by the GC,
+    // releasing the mutex and letting a second instance start.
+    private static System.Threading.Mutex? _singleInstanceMutex;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        // Wire Logger to tray balloon tips
-        Logger.OnError += msg => Dispatcher.Invoke(() => ShowBalloon(msg, ToolTipIcon.Error));
-        Logger.OnInfo  += msg => Dispatcher.Invoke(() => ShowBalloon(msg, ToolTipIcon.Info));
-
-        Logger.Log("=== Clicky starting ===");
-
-        // Single-instance guard
-        var mutex = new System.Threading.Mutex(true, "ClickyWindows_SingleInstance", out bool isFirst);
+        // Single-instance guard — before touching Logger, so a second launch can't rotate
+        // the running instance's log file.
+        _singleInstanceMutex = new System.Threading.Mutex(true, "ClickyWindows_SingleInstance", out bool isFirst);
         if (!isFirst)
         {
+            _singleInstanceMutex.Dispose();
+            _singleInstanceMutex = null;
             System.Windows.MessageBox.Show(
                 "Clicky is already running. Check the system tray.",
                 "Clicky", MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown();
             return;
         }
+
+        InstallCrashHandlers();
+
+        // Wire Logger to tray balloon tips (async: callers may be on background threads)
+        Logger.OnError += msg => Dispatcher.InvokeAsync(() => ShowBalloon(msg, ToolTipIcon.Error));
+        Logger.OnInfo  += msg => Dispatcher.InvokeAsync(() => ShowBalloon(msg, ToolTipIcon.Info));
+
+        Logger.Log("=== Clicky starting ===");
 
         _settings = AppSettings.Load();
         Logger.Log($"Settings loaded from: {Logger.LogFilePath.Replace("clicky.log", "settings.json")}");
@@ -49,6 +58,8 @@ public partial class App
         }
 
         _companion = new CompanionManager(_settings);
+        if (_settings.MicWarmUp)
+            _ = _companion.WarmUpMicAsync();
 
         _overlay = new OverlayWindow();
         _overlay.Show();
@@ -144,15 +155,51 @@ public partial class App
 
     private async void QuitApp()
     {
-        _trayIcon?.Dispose();
-        if (_companion != null)
-            await _companion.DisposeAsync();
+        try
+        {
+            _trayIcon?.Dispose();
+            if (_companion != null)
+                await _companion.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[Quit] Cleanup error: {ex.Message}");
+        }
         Shutdown();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         _trayIcon?.Dispose();
+        Logger.Log("=== Clicky exiting ===");
+        Logger.Flush(TimeSpan.FromSeconds(1));
+        _singleInstanceMutex?.Dispose();
         base.OnExit(e);
+    }
+
+    // ── Crash handling ──────────────────────────────────────────────────────
+    // A tray app has no window to show a crash dialog, so unhandled errors are logged and,
+    // where possible, survived: one failed interaction must not kill the background app.
+
+    private void InstallCrashHandlers()
+    {
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Logger.Error($"[Crash] UI thread: {args.Exception}");
+            args.Handled = true;
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Logger.Log($"[Crash] Unobserved task exception: {args.Exception}");
+            args.SetObserved();
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            // Background-thread exception: the runtime terminates the process after this
+            Logger.Log($"[Crash] Fatal (terminating={args.IsTerminating}): {args.ExceptionObject}");
+            Logger.Flush(TimeSpan.FromSeconds(1));
+        };
     }
 }

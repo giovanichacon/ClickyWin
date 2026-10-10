@@ -1,41 +1,65 @@
+using System.Text;
+using System.Threading.Channels;
+
 namespace ClickyWindows.Helpers;
 
 /// <summary>
-/// Simple file logger. Writes timestamped lines to %APPDATA%\ClickyWindows\clicky.log.
-/// Also calls an optional UI callback (for tray balloon tips on errors).
+/// File logger. Writes timestamped lines to %APPDATA%\ClickyWindows\clicky.log
+/// (the previous run is kept as clicky.prev.log).
+///
+/// Log() only enqueues — a single background task does the disk I/O — so it is safe and
+/// cheap to call from the UI thread, the audio capture thread or the WebSocket loops.
+/// Also raises optional callbacks (tray balloon tips) for Info/Error.
 /// </summary>
 public static class Logger
 {
-    private static readonly string LogPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ClickyWindows", "clicky.log");
+    private static readonly string LogDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClickyWindows");
+    private static readonly string LogPath = Path.Combine(LogDir, "clicky.log");
 
-    private static readonly object _lock = new();
+    private static readonly Channel<string> Queue =
+        Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
+    private static readonly Task Writer;
 
     public static Action<string>? OnError;   // hooked by App to show balloon tip
     public static Action<string>? OnInfo;    // hooked by App to show balloon tip
 
     static Logger()
     {
-        // Ensure directory exists and truncate old log on startup
         try
         {
-            var dir = Path.GetDirectoryName(LogPath)!;
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(LogPath, $"=== Clicky log started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}");
+            Directory.CreateDirectory(LogDir);
+            if (File.Exists(LogPath))
+                File.Move(LogPath, Path.Combine(LogDir, "clicky.prev.log"), overwrite: true);
         }
-        catch { }
+        catch { /* logging must never take the app down */ }
+
+        Writer = Task.Run(WriteLoopAsync);
+        Log($"=== Clicky log started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
     }
 
-    public static void Log(string message)
+    private static async Task WriteLoopAsync()
     {
-        var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
-        lock (_lock)
+        try
         {
-            try { File.AppendAllText(LogPath, line + Environment.NewLine); }
-            catch { }
+            // ReadWrite sharing so "View Log" can open the file while we hold it
+            await using var stream = new FileStream(
+                LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            await using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+
+            var reader = Queue.Reader;
+            while (await reader.WaitToReadAsync().ConfigureAwait(false))
+            {
+                while (reader.TryRead(out var line))
+                    writer.WriteLine(line); // buffered in memory
+                await writer.FlushAsync().ConfigureAwait(false);
+            }
         }
+        catch { /* disk full, file locked… drop the log rather than crash */ }
     }
+
+    public static void Log(string message) =>
+        Queue.Writer.TryWrite($"[{DateTime.Now:HH:mm:ss.fff}] {message}");
 
     public static void Info(string message)
     {
@@ -47,6 +71,14 @@ public static class Logger
     {
         Log($"[ERROR] {message}");
         OnError?.Invoke(message);
+    }
+
+    /// <summary>Stops accepting lines and waits for pending ones to reach disk. Call on exit.</summary>
+    public static void Flush(TimeSpan timeout)
+    {
+        Queue.Writer.TryComplete();
+        try { Writer.Wait(timeout); }
+        catch { }
     }
 
     public static string LogFilePath => LogPath;

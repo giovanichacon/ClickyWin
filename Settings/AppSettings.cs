@@ -21,6 +21,13 @@ public class AppSettings
     public uint HotkeyModifiers { get; set; } = 0x0002 | 0x0004; // MOD_CONTROL | MOD_SHIFT
     public uint HotkeyVirtualKey { get; set; } = 0x20; // VK_SPACE
 
+    // Open the mic briefly at startup so the first press starts recording instantly
+    // (the Windows mic indicator blinks once at launch)
+    public bool MicWarmUp { get; set; } = true;
+
+    // AssemblyAI streaming model — universal-3-6-pro code-switches Spanish/English automatically
+    public string AssemblyAiSpeechModel { get; set; } = "universal-3-6-pro";
+
     // Claude model
     public string ClaudeModel { get; set; } = "claude-sonnet-4-6";
 

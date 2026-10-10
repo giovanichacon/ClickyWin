@@ -42,7 +42,7 @@ public partial class ClaudeService
         Keep all responses concise and conversational — responses are spoken aloud via text-to-speech.
         Do not use markdown, bullet points, numbered lists, or code blocks.
         Speak naturally as if talking to someone sitting next to you.
-        Speak in Turkish all the time.
+        Always reply in the same language the user spoke to you in.
         """;
 
     private readonly AppSettings _settings;

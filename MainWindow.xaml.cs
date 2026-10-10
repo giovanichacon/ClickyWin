@@ -1,4 +1,5 @@
 using System.Windows;
+using ClickyWindows.Helpers;
 using ClickyWindows.Services;
 using ClickyWindows.Settings;
 
@@ -22,21 +23,22 @@ public partial class MainWindow : Window
         _overlay = overlay;
         _hotkey = new HotkeyService(settings.HotkeyModifiers, settings.HotkeyVirtualKey);
 
-        // Wire companion events to overlay
+        // Companion events fire on background threads. Marshal with InvokeAsync, never Invoke:
+        // a blocking hop would stall the caller (audio thread, network loops) whenever the UI is busy.
         _companion.StateChanged += state =>
-            Dispatcher.Invoke(() => _overlay.SetState(state));
+            Dispatcher.InvokeAsync(() => _overlay.SetState(state));
 
         _companion.PointReceived += (x, y, label) =>
-            Dispatcher.Invoke(() => _overlay.ShowTargetAt(x, y, label));
+            Dispatcher.InvokeAsync(() => _overlay.ShowTargetAt(x, y, label));
 
-        _companion.AudioLevelChanged += level =>
-            Dispatcher.Invoke(() => _overlay.SetAudioLevel(level));
+        // ~100 updates/s from the audio thread: just store the value, the render tick reads it
+        _companion.AudioLevelChanged += _overlay.SetAudioLevel;
 
         _companion.FeedbackReceived += msg =>
-            Dispatcher.Invoke(() => _overlay.ShowFeedback(msg));
+            Dispatcher.InvokeAsync(() => _overlay.ShowFeedback(msg));
 
-        _companion.TranscriptConfirmed +=
-            () => Dispatcher.Invoke(() => _overlay.PulseSpinner());
+        _companion.TranscriptConfirmed += () =>
+            Dispatcher.InvokeAsync(_overlay.PulseSpinner);
 
         SourceInitialized += OnSourceInitialized;
         Closing += OnClosing;
@@ -44,9 +46,17 @@ public partial class MainWindow : Window
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
-        _hotkey.Register(this);
-        _hotkey.PushToTalkPressed  += () => _ = _companion.OnPushToTalkPressed();
-        _hotkey.PushToTalkReleased += () => _ = _companion.OnPushToTalkReleased();
+        try
+        {
+            _hotkey.Register(this);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.Error($"Push-to-talk hotkey unavailable: {ex.Message}");
+            return;
+        }
+        _hotkey.PushToTalkPressed  += _companion.OnPushToTalkPressed;
+        _hotkey.PushToTalkReleased += _companion.OnPushToTalkReleased;
     }
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)

@@ -42,7 +42,7 @@ public partial class OverlayWindow : Window
     // Bar relative heights from original Clicky: center bar tallest.
     private static readonly double[] BarProfiles = [0.4, 0.7, 1.0, 0.7, 0.4];
     private WpfRect[] _waveformBars = null!;
-    private float  _audioLevel;
+    private volatile float _audioLevel; // written by the audio thread, read by the render tick
     private double _wavePhase;
 
     // ── Label hold timer ────────────────────────────────────────────────────
