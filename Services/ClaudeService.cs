@@ -151,10 +151,10 @@ public partial class ClaudeService
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var reader = new System.IO.StreamReader(stream);
 
-        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        // ReadLineAsync returns null at end of stream; EndOfStream would block synchronously
+        string? line;
+        while ((line = await reader.ReadLineAsync(ct)) != null)
         {
-            var line = await reader.ReadLineAsync(ct);
-            if (line == null) break;
 
             if (!line.StartsWith("data: ")) continue;
             var data = line["data: ".Length..];

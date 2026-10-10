@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Win10 22000 (Win11) — enables WinRT types in the SDK without extra packages -->
-    <TargetFramework>net8.0-windows10.0.22000.0</TargetFramework>
+    <!-- .NET 10 LTS. No WinRT APIs are used, so no Windows SDK projection (saves ~25 MB of output) -->
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
