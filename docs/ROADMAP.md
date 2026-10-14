@@ -1,5 +1,10 @@
 # ClickyWin — gap analysis and dictation plan (2026-10-14)
 
+**Status 2026-10-14:** P1, D1–D4, P3 (panel, copy answer, autostart, voice speed), P4 (streaming TTS),
+P5 (R2R publish profile) and tutor mode are implemented. Not done: P2 overlay rewrite / multi-monitor
+(user skipped multi-monitor). Measured idle: ~1 s to ready, ~84 MB private (full-screen overlay is the
+biggest remaining cost).
+
 Sources: farzaa/clicky README (open-source macOS app, Apr 2026), heyclicky.com/changelog
 (closed-source successor "HeyClicky", v1.0.11–v1.0.53), Farza's dictation launch post (Jul 2026),
 AssemblyAI streaming docs.
