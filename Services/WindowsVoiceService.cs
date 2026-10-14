@@ -9,7 +9,7 @@ namespace ClickyWindows.Services;
 /// Spanish voice for Spanish replies and an English one otherwise. Used when ElevenLabs
 /// is not configured or fails (no key, quota used up, offline).
 /// </summary>
-public sealed class WindowsVoiceService : IDisposable
+public sealed class WindowsVoiceService(Func<string>? preferredVoice = null) : IDisposable
 {
     private readonly object _lock = new();
     private SpeechSynthesizer? _synth;
@@ -24,7 +24,7 @@ public sealed class WindowsVoiceService : IDisposable
         lock (_lock)
         {
             var synth = Synth();
-            SelectVoice(synth, L.LooksSpanish(text) ? "es" : "en");
+            SelectVoice(synth, preferredVoice?.Invoke(), L.LooksSpanish(text) ? "es" : "en");
 
             void OnCompleted(object? s, SpeakCompletedEventArgs e)
             {
@@ -73,12 +73,21 @@ public sealed class WindowsVoiceService : IDisposable
         return _synth;
     }
 
-    private static void SelectVoice(SpeechSynthesizer synth, string language)
+    /// <summary>Installed, enabled Windows voices as (name, language tag).</summary>
+    public static List<(string name, string culture)> InstalledVoices()
     {
-        var voice = synth.GetInstalledVoices()
+        using var synth = new SpeechSynthesizer();
+        return synth.GetInstalledVoices()
             .Where(v => v.Enabled)
-            .Select(v => v.VoiceInfo)
-            .FirstOrDefault(v => v.Culture.TwoLetterISOLanguageName == language);
+            .Select(v => (v.VoiceInfo.Name, v.VoiceInfo.Culture.Name))
+            .ToList();
+    }
+
+    private static void SelectVoice(SpeechSynthesizer synth, string? preferred, string language)
+    {
+        var voices = synth.GetInstalledVoices().Where(v => v.Enabled).Select(v => v.VoiceInfo).ToList();
+        var voice = voices.FirstOrDefault(v => !string.IsNullOrEmpty(preferred) && v.Name == preferred)
+                    ?? voices.FirstOrDefault(v => v.Culture.TwoLetterISOLanguageName == language);
         if (voice != null && synth.Voice.Name != voice.Name)
             synth.SelectVoice(voice.Name);
     }

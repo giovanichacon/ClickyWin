@@ -15,7 +15,7 @@ public static class Logger
 {
     private static readonly string LogDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClickyWindows");
-    private static readonly string LogPath = Path.Combine(LogDir, "clicky.log");
+    private static string LogPath = Path.Combine(LogDir, "clicky.log");
 
     private static readonly Channel<string> Queue =
         Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
@@ -29,8 +29,11 @@ public static class Logger
         try
         {
             Directory.CreateDirectory(LogDir);
-            if (File.Exists(LogPath))
-                File.Move(LogPath, Path.Combine(LogDir, "clicky.prev.log"), overwrite: true);
+            for (int attempt = 0; attempt < 3 && File.Exists(LogPath); attempt++)
+            {
+                try { File.Move(LogPath, Path.Combine(LogDir, "clicky.prev.log"), overwrite: true); }
+                catch (IOException) { Thread.Sleep(100); } // briefly locked (antivirus, indexer, editor)
+            }
         }
         catch { /* logging must never take the app down */ }
 
@@ -38,13 +41,32 @@ public static class Logger
         Log($"=== Clicky log started {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
     }
 
+    private static FileStream OpenLogFile()
+    {
+        // ReadWrite sharing so "View Log" can open the file while we hold it
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (IOException) when (attempt < 3)
+            {
+                Thread.Sleep(150);
+            }
+            catch (IOException) when (attempt == 3)
+            {
+                // Still locked: write to a per-process file rather than lose the log
+                LogPath = Path.Combine(LogDir, $"clicky-{Environment.ProcessId}.log");
+            }
+        }
+    }
+
     private static async Task WriteLoopAsync()
     {
         try
         {
-            // ReadWrite sharing so "View Log" can open the file while we hold it
-            await using var stream = new FileStream(
-                LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            await using var stream = OpenLogFile();
             await using var writer = new StreamWriter(stream, new UTF8Encoding(false));
 
             var reader = Queue.Reader;
@@ -55,7 +77,12 @@ public static class Logger
                 await writer.FlushAsync().ConfigureAwait(false);
             }
         }
-        catch { /* disk full, file locked… drop the log rather than crash */ }
+        catch (Exception ex)
+        {
+            // Disk full, permissions… leave a trace somewhere visible, never crash
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "clicky-logger-error.txt"), ex.ToString()); }
+            catch { }
+        }
     }
 
     public static void Log(string message) =>

@@ -80,6 +80,15 @@ public static partial class L
     public static string VoiceAuto => T("Automática (ElevenLabs si hay clave, si no Windows)", "Automatic (ElevenLabs if a key is set, else Windows)");
     public static string VoiceEleven => "ElevenLabs";
     public static string VoiceWindows => T("Windows (gratis, sin conexión)", "Windows (free, offline)");
+    public static string VoiceNameLabel => T("Voz elegida", "Voice name");
+    public static string VoiceByLanguage => T("Automática según el idioma", "Automatic by language");
+    public static string Preview => T("Escuchar", "Preview");
+    public static string LoadingVoices => T("Cargando voces…", "Loading voices…");
+    public static string VoicesFailed(string why) => T($"No se pudieron cargar las voces: {why}", $"Could not load voices: {why}");
+    public static string ElevenFreeNote => T(
+        "Plan gratis: solo voces predefinidas o tuyas por API.",
+        "Free plan: only premade or your own voices work through the API.");
+    public static string PreviewText => T("Hola, soy Clicky. Así sueno.", "Hi, I'm Clicky. This is how I sound.");
     public static string MicLabel => T("Micrófono", "Microphone");
     public static string MicDefault => T("Predeterminado de Windows", "Windows default");
     public static string MicHint => T("Habla: la barra debe moverse.", "Speak: the bar should move.");

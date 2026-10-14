@@ -26,6 +26,9 @@ public partial class SetupWindow : Window
     private readonly MicLevelMeter _meter = new();
     private readonly DispatcherTimer _meterTimer;
     private int _meterGeneration;
+    private int _voiceGeneration;
+    private bool _voiceListIsElevenLabs;
+    private bool _loaded;
 
     public SetupWindow(AppSettings settings)
     {
@@ -38,6 +41,8 @@ public partial class SetupWindow : Window
         AssemblyLabel.Text = L.KeyAssembly;
         ElevenLabel.Text = L.KeyEleven;
         VoiceLabel.Text = L.VoiceLabel;
+        VoiceNameLabel.Text = L.VoiceNameLabel;
+        PreviewButton.Content = L.Preview;
         MicLabel.Text = L.MicLabel;
         MicHint.Text = L.MicHint;
         ModelLabel.Text = L.ModelLabel;
@@ -66,6 +71,9 @@ public partial class SetupWindow : Window
         _meterTimer.Tick += (_, _) =>
             MicLevel.Value = Math.Max(_meter.TakePeak(), MicLevel.Value * 0.8); // fast attack, smooth fall
         _meterTimer.Start();
+
+        _loaded = true;
+        RefreshVoiceNames();
 
         Closed += (_, _) =>
         {
@@ -105,6 +113,83 @@ public partial class SetupWindow : Window
         });
     }
 
+    // ── Voices ──────────────────────────────────────────────────────────────
+
+    private void OnVoiceEngineChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loaded) RefreshVoiceNames();
+    }
+
+    private string ElevenKeyInUse =>
+        string.IsNullOrWhiteSpace(ElevenKey.Password) ? _settings.ElevenLabsApiKey : ElevenKey.Password.Trim();
+
+    /// <summary>Lists ElevenLabs voices when ElevenLabs will speak, else the installed Windows voices.</summary>
+    private async void RefreshVoiceNames()
+    {
+        int generation = ++_voiceGeneration;
+        var engine = Selected(VoiceBox);
+        var key = ElevenKeyInUse;
+        bool useElevenLabs = engine == "ElevenLabs" || (engine == "Auto" && !string.IsNullOrWhiteSpace(key));
+
+        VoiceNameBox.Items.Clear();
+        VoiceNameStatus.Text = "";
+        VoiceNameStatus.Foreground = System.Windows.Media.Brushes.DimGray;
+        _voiceListIsElevenLabs = useElevenLabs;
+
+        if (!useElevenLabs || string.IsNullOrWhiteSpace(key))
+        {
+            var installed = WindowsVoiceService.InstalledVoices();
+            Fill(VoiceNameBox, _settings.WindowsVoice,
+                [("", L.VoiceByLanguage), .. installed.Select(v => (v.name, $"{v.name}  ({v.culture})"))]);
+            _voiceListIsElevenLabs = false;
+            return;
+        }
+
+        VoiceNameStatus.Text = L.LoadingVoices;
+        try
+        {
+            var voices = await ElevenLabsService.ListVoicesAsync(key, _settings.Config.Endpoints.ElevenLabs);
+            if (generation != _voiceGeneration) return;
+            Fill(VoiceNameBox, _settings.EffectiveElevenLabsVoiceId, [.. voices]);
+            VoiceNameStatus.Text = L.ElevenFreeNote;
+        }
+        catch (Exception ex)
+        {
+            if (generation != _voiceGeneration) return;
+            VoiceNameStatus.Text = L.VoicesFailed(ex.Message);
+            VoiceNameStatus.Foreground = System.Windows.Media.Brushes.Firebrick;
+        }
+    }
+
+    private async void OnPreview(object sender, RoutedEventArgs e)
+    {
+        var voice = Selected(VoiceNameBox);
+        PreviewButton.IsEnabled = false;
+        try
+        {
+            if (_voiceListIsElevenLabs)
+            {
+                using var eleven = new ElevenLabsService(_settings);
+                await eleven.SpeakWithAsync(L.PreviewText, ElevenKeyInUse, voice, null);
+            }
+            else
+            {
+                using var windows = new WindowsVoiceService(() => voice);
+                await Task.Run(() => windows.SpeakAsync(L.PreviewText, null, CancellationToken.None));
+            }
+            VoiceNameStatus.Foreground = System.Windows.Media.Brushes.DimGray;
+        }
+        catch (Exception ex)
+        {
+            VoiceNameStatus.Text = L.TestFail(ex.Message);
+            VoiceNameStatus.Foreground = System.Windows.Media.Brushes.Firebrick;
+        }
+        finally
+        {
+            PreviewButton.IsEnabled = true;
+        }
+    }
+
     // ── Key tests ───────────────────────────────────────────────────────────
 
     private async void OnTestClaude(object sender, RoutedEventArgs e) =>
@@ -115,9 +200,12 @@ public partial class SetupWindow : Window
         await RunTest(AssemblyKey, _settings.AssemblyAiApiKey, AssemblyStatus, AssemblyTest,
             AssemblyAIService.TestKeyAsync);
 
-    private async void OnTestEleven(object sender, RoutedEventArgs e) =>
+    private async void OnTestEleven(object sender, RoutedEventArgs e)
+    {
         await RunTest(ElevenKey, _settings.ElevenLabsApiKey, ElevenStatus, ElevenTest,
             key => ElevenLabsService.TestKeyAsync(key, _settings.Config.Endpoints.ElevenLabs));
+        RefreshVoiceNames();
+    }
 
     private static async Task RunTest(PasswordBox box, string savedKey, TextBlock status, Button button,
         Func<string, Task<(bool ok, string message)>> test)
@@ -151,6 +239,11 @@ public partial class SetupWindow : Window
         if (!string.IsNullOrWhiteSpace(AssemblyKey.Password)) _settings.AssemblyAiApiKey = AssemblyKey.Password.Trim();
         if (!string.IsNullOrWhiteSpace(ElevenKey.Password)) _settings.ElevenLabsApiKey = ElevenKey.Password.Trim();
         _settings.Voice = Selected(VoiceBox);
+        if (VoiceNameBox.SelectedItem != null)
+        {
+            if (_voiceListIsElevenLabs) _settings.ElevenLabsVoiceId = Selected(VoiceNameBox);
+            else _settings.WindowsVoice = Selected(VoiceNameBox);
+        }
         _settings.MicDeviceId = Selected(MicBox);
         _settings.PrimaryModel = Selected(ModelBox);
         _settings.EscalationModel = Selected(EscalationBox);

@@ -84,7 +84,7 @@ public sealed class SpeechConfig
 {
     public string AssemblyAiModel { get; set; } = "universal-3-6-pro";
     public string ElevenLabsModel { get; set; } = "eleven_flash_v2_5";
-    public string ElevenLabsVoiceId { get; set; } = "21m00Tcm4TlvDq8ikWAM";
+    public string ElevenLabsVoiceId { get; set; } = "EXAVITQu4vr4xnSDxMaL";
 }
 
 public sealed class ScreenshotConfig

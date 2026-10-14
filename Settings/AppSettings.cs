@@ -36,6 +36,8 @@ public sealed class AppSettings
     /// <summary>"Auto" (ElevenLabs if a key is set, else Windows), "ElevenLabs" or "Windows".</summary>
     public string Voice { get; set; } = "Auto";
     public string ElevenLabsVoiceId { get; set; } = "";
+    /// <summary>Installed Windows voice name; empty = pick by the reply's language.</summary>
+    public string WindowsVoice { get; set; } = "";
     public string PrimaryModel { get; set; } = "";
     /// <summary>Empty = shipped default; "none" disables escalation.</summary>
     public string EscalationModel { get; set; } = "";

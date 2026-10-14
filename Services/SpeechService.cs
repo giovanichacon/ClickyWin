@@ -10,7 +10,8 @@ namespace ClickyWindows.Services;
 public sealed class SpeechService(AppSettings settings) : IDisposable
 {
     private readonly ElevenLabsService _elevenLabs = new(settings);
-    private readonly WindowsVoiceService _windows = new();
+    private readonly WindowsVoiceService _windows = new(() => settings.WindowsVoice);
+    private int _elevenLabsErrorShown;
 
     public async Task SpeakAsync(string text, Action? onPlaybackStarting, CancellationToken ct)
     {
@@ -25,7 +26,10 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException && !started)
             {
-                Logger.Log($"[TTS] ElevenLabs failed, using the Windows voice: {ex.Message}");
+                var message = $"[TTS] ElevenLabs failed, using the Windows voice: {ex.Message}";
+                // Balloon the first time only; afterwards just log
+                if (Interlocked.Exchange(ref _elevenLabsErrorShown, 1) == 0) Logger.Error(message);
+                else Logger.Log(message);
             }
         }
         await _windows.SpeakAsync(text, onPlaybackStarting, ct).ConfigureAwait(false);

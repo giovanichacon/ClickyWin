@@ -53,13 +53,19 @@
 
         <!-- Voice -->
         <TextBlock x:Name="VoiceLabel" Style="{StaticResource Section}"/>
-        <ComboBox x:Name="VoiceBox"/>
+        <ComboBox x:Name="VoiceBox" SelectionChanged="OnVoiceEngineChanged"/>
         <TextBlock x:Name="ElevenLabel" Style="{StaticResource Section}"/>
         <DockPanel>
             <Button x:Name="ElevenTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestEleven"/>
             <PasswordBox x:Name="ElevenKey"/>
         </DockPanel>
         <TextBlock x:Name="ElevenStatus" Style="{StaticResource Status}"/>
+        <TextBlock x:Name="VoiceNameLabel" Style="{StaticResource Section}"/>
+        <DockPanel>
+            <Button x:Name="PreviewButton" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnPreview"/>
+            <ComboBox x:Name="VoiceNameBox"/>
+        </DockPanel>
+        <TextBlock x:Name="VoiceNameStatus" Style="{StaticResource Status}" TextWrapping="Wrap"/>
 
         <!-- Microphone -->
         <TextBlock x:Name="MicLabel" Style="{StaticResource Section}"/>
