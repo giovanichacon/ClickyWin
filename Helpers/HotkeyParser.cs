@@ -27,8 +27,23 @@ internal static class HotkeyParser
                     break;
             }
         }
-        // RegisterHotKey needs a non-modifier key; a bare letter would hijack normal typing
-        return virtualKey != 0 && modifiers != 0;
+        // RegisterHotKey needs a non-modifier key; a bare or Shift-only key would hijack normal typing
+        return virtualKey != 0 && modifiers != 0 && modifiers != Win32.MOD_SHIFT;
+    }
+
+    /// <summary>"Ctrl+Shift+Space"-style text for a key press; null while only modifiers are held.</summary>
+    public static string? Format(ModifierKeys modifiers, Key key)
+    {
+        if (key is Key.None or Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift
+            or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin or Key.System) return null;
+
+        var parts = new List<string>(4);
+        if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
+        if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
+        if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
+        if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
+        parts.Add(key.ToString());
+        return string.Join("+", parts);
     }
 
     /// <summary>Parses <paramref name="text"/>, falling back to Ctrl+Shift+Space when it is invalid.</summary>

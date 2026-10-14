@@ -43,6 +43,10 @@ public sealed class AppSettings
     public string EscalationModel { get; set; } = "";
     /// <summary>"Auto" (follow the language you speak / Windows), "es" or "en".</summary>
     public string Language { get; set; } = "Auto";
+    /// <summary>Push-to-talk shortcut, e.g. "Ctrl+Shift+Space"; empty = appsettings.json default.</summary>
+    public string Hotkey { get; set; } = "";
+    /// <summary>false = the blue cursor shows only while listening, thinking, speaking or pointing.</summary>
+    public bool AlwaysShowCursor { get; set; }
 
     // ── Effective values ────────────────────────────────────────────────────
     [JsonIgnore] public string EffectivePrimaryModel =>
@@ -57,6 +61,9 @@ public sealed class AppSettings
                    model == EffectivePrimaryModel ? null : model;
         }
     }
+
+    [JsonIgnore] public string EffectiveHotkey =>
+        string.IsNullOrWhiteSpace(Hotkey) ? Config.Hotkey : Hotkey;
 
     [JsonIgnore] public string EffectiveElevenLabsVoiceId =>
         string.IsNullOrWhiteSpace(ElevenLabsVoiceId) ? Config.Speech.ElevenLabsVoiceId : ElevenLabsVoiceId;

@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Button = System.Windows.Controls.Button;
 using ComboBox = System.Windows.Controls.ComboBox;
 using System.Windows.Threading;
@@ -29,11 +30,14 @@ public partial class SetupWindow : Window
     private int _voiceGeneration;
     private bool _voiceListIsElevenLabs;
     private bool _loaded;
+    private readonly MainWindow? _host;
+    private string _hotkeyText;
 
-    public SetupWindow(AppSettings settings)
+    public SetupWindow(AppSettings settings, MainWindow? host = null)
     {
         InitializeComponent();
         _settings = settings;
+        _host = host;
 
         Title = L.SetupTitle;
         IntroText.Text = L.SetupIntro;
@@ -48,6 +52,13 @@ public partial class SetupWindow : Window
         ModelLabel.Text = L.ModelLabel;
         EscalationLabel.Text = L.EscalationLabel;
         LanguageLabel.Text = L.LanguageLabel;
+        HotkeyLabel.Text = L.HotkeyLabel;
+        HotkeyStatus.Text = L.HotkeyHint;
+        HotkeyReset.Content = L.HotkeyDefault;
+        AlwaysCursorBox.Content = L.AlwaysShowCursor;
+        AlwaysCursorBox.IsChecked = settings.AlwaysShowCursor;
+        _hotkeyText = HotkeyParser.ParseOrDefault(settings.EffectiveHotkey).text;
+        HotkeyBox.Text = _hotkeyText;
         ClaudeTest.Content = AssemblyTest.Content = ElevenTest.Content = L.Test;
         SaveButton.Content = L.Save;
         CancelButton.Content = L.Cancel;
@@ -79,6 +90,7 @@ public partial class SetupWindow : Window
         {
             _meterTimer.Stop();
             _meter.Dispose();
+            _host?.SuspendHotkey(false);
         };
     }
 
@@ -111,6 +123,73 @@ public partial class SetupWindow : Window
         {
             if (generation == _meterGeneration) _meter.Start(deviceId);
         });
+    }
+
+    // ── Push-to-talk shortcut ───────────────────────────────────────────────
+
+    private void OnHotkeyFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        _host?.SuspendHotkey(true); // so the current combination can be pressed here too
+        SetHotkeyStatus(L.HotkeyPress, error: false);
+    }
+
+    private void OnHotkeyBlur(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        _host?.SuspendHotkey(false);
+        HotkeyBox.Text = _hotkeyText;
+        if (HotkeyStatus.Foreground != System.Windows.Media.Brushes.Firebrick) SetHotkeyStatus(L.HotkeyHint, error: false);
+    }
+
+    private void OnHotkeyKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        e.Handled = true; // Tab, Enter and letters are recorded, not typed or used for navigation
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var modifiers = Keyboard.Modifiers;
+
+        if (key == Key.Escape && modifiers == ModifierKeys.None)
+        {
+            SaveButton.Focus(); // leave the box, keep the previous combination
+            return;
+        }
+
+        var text = HotkeyParser.Format(modifiers, key);
+        if (text == null)
+        {
+            HotkeyBox.Text = ModifiersText(modifiers) + "+…"; // only modifiers held so far
+            return;
+        }
+        if (!HotkeyParser.TryParse(text, out _, out _))
+        {
+            SetHotkeyStatus(L.HotkeyNeedsModifier, error: true);
+            return;
+        }
+
+        _hotkeyText = text;
+        HotkeyBox.Text = text;
+        SetHotkeyStatus(L.HotkeyHint, error: false);
+        SaveButton.Focus();
+    }
+
+    private static string ModifiersText(ModifierKeys modifiers) =>
+        string.Join("+", new[]
+        {
+            modifiers.HasFlag(ModifierKeys.Control) ? "Ctrl" : null,
+            modifiers.HasFlag(ModifierKeys.Shift) ? "Shift" : null,
+            modifiers.HasFlag(ModifierKeys.Alt) ? "Alt" : null,
+            modifiers.HasFlag(ModifierKeys.Windows) ? "Win" : null,
+        }.Where(part => part != null));
+
+    private void OnHotkeyReset(object sender, RoutedEventArgs e)
+    {
+        _hotkeyText = HotkeyParser.ParseOrDefault(_settings.Config.Hotkey).text;
+        HotkeyBox.Text = _hotkeyText;
+        SetHotkeyStatus(L.HotkeyHint, error: false);
+    }
+
+    private void SetHotkeyStatus(string text, bool error)
+    {
+        HotkeyStatus.Text = text;
+        HotkeyStatus.Foreground = error ? System.Windows.Media.Brushes.Firebrick : System.Windows.Media.Brushes.DimGray;
     }
 
     // ── Voices ──────────────────────────────────────────────────────────────
@@ -235,6 +314,17 @@ public partial class SetupWindow : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
+        // Re-bind first: if Windows or another app owns the combination, stay open and say so
+        if (_hotkeyText != HotkeyParser.ParseOrDefault(_settings.EffectiveHotkey).text && _host != null &&
+            HotkeyParser.TryParse(_hotkeyText, out var hotkeyModifiers, out var hotkeyKey) &&
+            !_host.TryChangeHotkey(hotkeyModifiers, hotkeyKey))
+        {
+            SetHotkeyStatus(L.HotkeyTaken(_hotkeyText), error: true);
+            return;
+        }
+        _settings.Hotkey = _hotkeyText == _settings.Config.Hotkey ? "" : _hotkeyText;
+        _settings.AlwaysShowCursor = AlwaysCursorBox.IsChecked == true;
+
         if (!string.IsNullOrWhiteSpace(ClaudeKey.Password)) _settings.AnthropicApiKey = ClaudeKey.Password.Trim();
         if (!string.IsNullOrWhiteSpace(AssemblyKey.Password)) _settings.AssemblyAiApiKey = AssemblyKey.Password.Trim();
         if (!string.IsNullOrWhiteSpace(ElevenKey.Password)) _settings.ElevenLabsApiKey = ElevenKey.Password.Trim();

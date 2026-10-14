@@ -55,7 +55,7 @@ public partial class App
         Logger.Log($"Settings: {AppSettings.FilePath} | config: {AppConfig.FilePath}");
         Logger.Log($"Models: {_settings.EffectivePrimaryModel} → {_settings.EffectiveEscalationModel ?? "no escalation"}");
 
-        var (mods, vk, hotkeyText) = HotkeyParser.ParseOrDefault(_settings.Config.Hotkey);
+        var (mods, vk, hotkeyText) = HotkeyParser.ParseOrDefault(_settings.EffectiveHotkey);
         _hotkeyText = hotkeyText;
 
         _companion = new CompanionManager(_settings);
@@ -63,6 +63,7 @@ public partial class App
             _ = _companion.WarmUpMicAsync();
 
         _overlay = new OverlayWindow();
+        _overlay.SetAlwaysShowCursor(_settings.AlwaysShowCursor);
         _overlay.Show();
 
         _mainWindow = new MainWindow(mods, vk, _companion, _overlay);
@@ -72,10 +73,10 @@ public partial class App
         SetupTrayIcon();
 
         Logger.Log($"Clicky ready. Hotkey: {_hotkeyText}");
-        if (_settings.HasRequiredKeys)
+        if (_settings.HasRequiredKeys && !e.Args.Contains("--settings"))
             ShowBalloon(L.Ready(_hotkeyText), ToolTipIcon.Info);
         else
-            OpenSetup(); // first run: keys are needed before anything works
+            OpenSetup(); // first run (keys are needed before anything works) or "--settings"
     }
 
     private void OpenSetup()
@@ -86,12 +87,14 @@ public partial class App
             return;
         }
 
-        _setupWindow = new SetupWindow(_settings);
+        _setupWindow = new SetupWindow(_settings, _mainWindow);
         try
         {
             if (_setupWindow.ShowDialog() == true)
             {
                 _companion?.ApplySettings();
+                _overlay?.SetAlwaysShowCursor(_settings.AlwaysShowCursor);
+                _hotkeyText = HotkeyParser.ParseOrDefault(_settings.EffectiveHotkey).text;
                 RebuildTrayMenu();
                 Logger.Log($"Models: {_settings.EffectivePrimaryModel} → {_settings.EffectiveEscalationModel ?? "no escalation"}");
                 if (_settings.HasRequiredKeys)

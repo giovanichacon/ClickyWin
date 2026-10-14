@@ -39,9 +39,16 @@ public partial class MainWindow : Window
         _companion.TranscriptConfirmed += () =>
             Dispatcher.InvokeAsync(_overlay.PulseSpinner);
 
+        _hotkey.PushToTalkPressed  += _companion.OnPushToTalkPressed;
+        _hotkey.PushToTalkReleased += _companion.OnPushToTalkReleased;
+
         SourceInitialized += OnSourceInitialized;
         Closing += OnClosing;
     }
+
+    public bool TryChangeHotkey(uint modifiers, uint virtualKey) => _hotkey.TryChange(modifiers, virtualKey);
+
+    public void SuspendHotkey(bool suspended) => _hotkey.Suspend(suspended);
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
@@ -52,10 +59,7 @@ public partial class MainWindow : Window
         catch (InvalidOperationException ex)
         {
             Logger.Error($"Push-to-talk hotkey unavailable: {ex.Message}");
-            return;
         }
-        _hotkey.PushToTalkPressed  += _companion.OnPushToTalkPressed;
-        _hotkey.PushToTalkReleased += _companion.OnPushToTalkReleased;
     }
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)

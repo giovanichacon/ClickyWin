@@ -92,6 +92,15 @@ public static partial class L
     public static string MicLabel => T("Micrófono", "Microphone");
     public static string MicDefault => T("Predeterminado de Windows", "Windows default");
     public static string MicHint => T("Habla: la barra debe moverse.", "Speak: the bar should move.");
+    public static string HotkeyLabel => T("Atajo para hablar (mantener pulsado)", "Push-to-talk shortcut (hold)");
+    public static string HotkeyHint => T("Haz clic en el cuadro y pulsa la combinación nueva.", "Click the box and press the new combination.");
+    public static string HotkeyPress => T("Pulsa la combinación… (Esc para cancelar)", "Press the combination… (Esc to cancel)");
+    public static string HotkeyNeedsModifier => T("Usa Ctrl, Alt o Win junto con otra tecla.", "Use Ctrl, Alt or Win together with another key.");
+    public static string HotkeyTaken(string combo) => T($"{combo} ya lo usa Windows u otra app. Prueba otra.", $"{combo} is already used by Windows or another app. Try another.");
+    public static string HotkeyDefault => T("Restablecer", "Reset");
+    public static string AlwaysShowCursor => T(
+        "Mostrar siempre el cursor azul (si no, solo mientras usas Clicky)",
+        "Always show the blue cursor (otherwise only while Clicky is active)");
     public static string ModelLabel => T("Modelo diario", "Everyday model");
     public static string EscalationLabel => T("Preguntas difíciles", "Hard questions");
     public static string EscalationOff => T("Desactivado", "Off");

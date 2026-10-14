@@ -73,6 +73,17 @@
         <ProgressBar x:Name="MicLevel" Height="8" Margin="0,6,0,0" Maximum="1" Foreground="#3380FF"/>
         <TextBlock x:Name="MicHint" Style="{StaticResource Status}"/>
 
+        <!-- Shortcut + cursor -->
+        <TextBlock x:Name="HotkeyLabel" Style="{StaticResource Section}"/>
+        <DockPanel>
+            <Button x:Name="HotkeyReset" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnHotkeyReset"/>
+            <TextBox x:Name="HotkeyBox" IsReadOnly="True" IsReadOnlyCaretVisible="False" Padding="4,3"
+                     Cursor="Hand" PreviewKeyDown="OnHotkeyKeyDown"
+                     GotKeyboardFocus="OnHotkeyFocus" LostKeyboardFocus="OnHotkeyBlur"/>
+        </DockPanel>
+        <TextBlock x:Name="HotkeyStatus" Style="{StaticResource Status}" TextWrapping="Wrap"/>
+        <CheckBox x:Name="AlwaysCursorBox" Margin="0,10,0,0"/>
+
         <!-- Models + language -->
         <Grid Margin="0,4,0,0">
             <Grid.ColumnDefinitions>

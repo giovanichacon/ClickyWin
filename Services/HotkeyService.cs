@@ -14,8 +14,11 @@ public class HotkeyService : IDisposable
 {
     private const int HotkeyId = 9001;
 
-    private readonly uint _modifiers;
-    private readonly uint _virtualKey;
+    private const int ErrorHotkeyAlreadyRegistered = 1409;
+
+    private uint _modifiers;
+    private uint _virtualKey;
+    private bool _registered;
     private IntPtr _hwnd;
     private HwndSource? _hwndSource;
     private bool _isPressed;
@@ -40,11 +43,56 @@ public class HotkeyService : IDisposable
         _hwndSource = HwndSource.FromHwnd(_hwnd);
         _hwndSource?.AddHook(WndProc);
 
-        bool ok = Win32.RegisterHotKey(_hwnd, HotkeyId, _modifiers, _virtualKey);
-        if (!ok)
+        RegisterCurrent();
+    }
+
+    private void RegisterCurrent()
+    {
+        if (!Win32.RegisterHotKey(_hwnd, HotkeyId, _modifiers, _virtualKey))
         {
             int err = Marshal.GetLastWin32Error();
-            throw new InvalidOperationException($"RegisterHotKey failed (error {err}). Try a different hotkey combination.");
+            throw new InvalidOperationException(err == ErrorHotkeyAlreadyRegistered
+                ? "the combination is already used by Windows or another app."
+                : $"RegisterHotKey failed (error {err}). Try a different hotkey combination.");
+        }
+        _registered = true;
+    }
+
+    /// <summary>Switches to a new combination. If it is taken, the previous one stays active.</summary>
+    public bool TryChange(uint modifiers, uint virtualKey)
+    {
+        if (_hwnd == IntPtr.Zero) return false;
+        var (oldModifiers, oldVirtualKey) = (_modifiers, _virtualKey);
+
+        Suspend(true);
+        _modifiers = modifiers | Win32.MOD_NOREPEAT;
+        _virtualKey = virtualKey;
+        try
+        {
+            RegisterCurrent();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            (_modifiers, _virtualKey) = (oldModifiers, oldVirtualKey);
+            Suspend(false);
+            return false;
+        }
+    }
+
+    /// <summary>Releases the combination while Settings records a new one, so it can be pressed there.</summary>
+    public void Suspend(bool suspended)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        if (suspended && _registered)
+        {
+            Win32.UnregisterHotKey(_hwnd, HotkeyId);
+            _registered = false;
+        }
+        else if (!suspended && !_registered)
+        {
+            try { RegisterCurrent(); }
+            catch (InvalidOperationException ex) { Logger.Error($"Push-to-talk hotkey unavailable: {ex.Message}"); }
         }
     }
 
@@ -99,8 +147,9 @@ public class HotkeyService : IDisposable
 
     public void Dispose()
     {
-        if (_hwnd != IntPtr.Zero)
+        if (_registered)
             Win32.UnregisterHotKey(_hwnd, HotkeyId);
+        _registered = false;
         _hwndSource?.RemoveHook(WndProc);
         _hwndSource = null;
     }

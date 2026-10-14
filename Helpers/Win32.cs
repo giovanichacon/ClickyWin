@@ -48,6 +48,13 @@ internal static class Win32
         int X, int Y, int cx, int cy,
         uint uFlags);
 
+    // Keeps a window out of screenshots and screen recordings (Windows 10 2004+)
+    public const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetCursorPos(out POINT lpPoint);

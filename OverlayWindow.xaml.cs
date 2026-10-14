@@ -16,6 +16,8 @@ public partial class OverlayWindow : Window
     private enum DotState { FollowingCursor, FlyingToTarget, PointingAtTarget }
     private DotState _dotState = DotState.FollowingCursor;
     private AppState _appState = AppState.Idle;
+    private bool _alwaysShowCursor = true;
+    private bool _hwndReady;
 
     // ── Spring physics (cursor trailing) ────────────────────────────────────
     // Dot trails the cursor with a spring: responsive but with a pleasant lag.
@@ -84,6 +86,10 @@ public partial class OverlayWindow : Window
             0, 0, 0, 0,
             Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
 
+        // The spinner/dot must not end up in the screenshots Claude sees
+        if (!Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_EXCLUDEFROMCAPTURE))
+            Logger.Log($"[Overlay] Could not exclude the overlay from screenshots (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()})");
+
         var screen = System.Windows.Forms.Screen.PrimaryScreen!;
         var dpiScale = CoordinateHelper.GetDpiScale();
         Left   = screen.Bounds.Left   / dpiScale;
@@ -91,7 +97,47 @@ public partial class OverlayWindow : Window
         Width  = screen.Bounds.Width  / dpiScale;
         Height = screen.Bounds.Height / dpiScale;
 
-        _cursorTimer.Start();
+        _hwndReady = true;
+        UpdateTicking();
+    }
+
+    /// <summary>false = the dot appears only while listening, thinking, speaking or pointing.</summary>
+    public void SetAlwaysShowCursor(bool always)
+    {
+        _alwaysShowCursor = always;
+        if (_appState == AppState.Idle && _dotState == DotState.FollowingCursor)
+            CursorFollower.Visibility = always ? Visibility.Visible : Visibility.Collapsed;
+        UpdateTicking();
+    }
+
+    /// <summary>
+    /// Runs the 60 fps tick only while something is on screen, so a hidden idle Clicky costs no CPU.
+    /// On restart the dot snaps to the cursor instead of flying in from where it last stopped.
+    /// </summary>
+    private void UpdateTicking()
+    {
+        if (!_hwndReady) return;
+        bool needed = _alwaysShowCursor || _appState != AppState.Idle ||
+                      _dotState != DotState.FollowingCursor || TargetLabel.Visibility == Visibility.Visible;
+        if (needed && !_cursorTimer.IsEnabled)
+        {
+            SnapToCursor();
+            _cursorTimer.Start();
+        }
+        else if (!needed && _cursorTimer.IsEnabled)
+        {
+            _cursorTimer.Stop();
+        }
+    }
+
+    private void SnapToCursor()
+    {
+        Win32.GetCursorPos(out var pt);
+        var dpiScale = CoordinateHelper.GetDpiScale();
+        _dotX = pt.X / dpiScale - Left + CursorOffsetX;
+        _dotY = pt.Y / dpiScale - Top + CursorOffsetY;
+        _dotVX = _dotVY = 0;
+        _initialized = true;
     }
 
     // ── Main tick: spring physics + flight animation + waveform bars ─────────
@@ -231,7 +277,7 @@ public partial class OverlayWindow : Window
                     if (_dotState != DotState.FollowingCursor)
                         ResumeFollowingCursor(cancelPointer: true);
                     else
-                        CursorFollower.Visibility = Visibility.Visible;
+                        CursorFollower.Visibility = _alwaysShowCursor ? Visibility.Visible : Visibility.Collapsed;
                     break;
 
                 case AppState.Listening:
@@ -267,6 +313,7 @@ public partial class OverlayWindow : Window
                         CursorFollower.Visibility = Visibility.Visible;
                     break;
             }
+            UpdateTicking();
         });
     }
 
@@ -305,6 +352,7 @@ public partial class OverlayWindow : Window
             _labelTimer?.Stop();
             CursorFollower.Visibility = Visibility.Visible;
             _dotState = DotState.FlyingToTarget;
+            UpdateTicking();
         });
     }
 
@@ -362,8 +410,11 @@ public partial class OverlayWindow : Window
         _dotState = DotState.FollowingCursor;
 
         // Show dot only if the app isn't in a state that uses a different indicator
-        if (_appState != AppState.Listening && _appState != AppState.Processing)
+        if (_appState == AppState.Speaking || (_appState == AppState.Idle && _alwaysShowCursor))
             CursorFollower.Visibility = Visibility.Visible;
+        else if (_appState == AppState.Idle)
+            CursorFollower.Visibility = Visibility.Collapsed;
+        UpdateTicking();
     }
 
     // ── Feedback bubble (silent failures, error messages) ───────────────────
@@ -377,6 +428,7 @@ public partial class OverlayWindow : Window
         Dispatcher.Invoke(() =>
         {
             _labelTimer?.Stop();
+            if (!_cursorTimer.IsEnabled) SnapToCursor(); // hidden idle dot: show the bubble at the cursor
 
             // Position near current dot location
             System.Windows.Controls.Canvas.SetLeft(TargetLabel, _dotX + 20);
@@ -388,6 +440,7 @@ public partial class OverlayWindow : Window
 
             var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.25));
             TargetLabel.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            UpdateTicking();
 
             // Hold 3 s then fade out; don't change dot state
             _labelTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.25) };
@@ -395,7 +448,11 @@ public partial class OverlayWindow : Window
             {
                 _labelTimer!.Stop();
                 var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.5));
-                fadeOut.Completed += (_, _) => TargetLabel.Visibility = Visibility.Collapsed;
+                fadeOut.Completed += (_, _) =>
+                {
+                    TargetLabel.Visibility = Visibility.Collapsed;
+                    UpdateTicking();
+                };
                 TargetLabel.BeginAnimation(UIElement.OpacityProperty, fadeOut);
             };
             _labelTimer.Start();
