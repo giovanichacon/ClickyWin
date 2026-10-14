@@ -49,6 +49,8 @@ public sealed class AppSettings
     public string DictateHotkey { get; set; } = "";
     /// <summary>Hold to say what to write (uses the screen and the focused box); empty = default, "Off" disables.</summary>
     public string WriteHotkey { get; set; } = "";
+    /// <summary>Prompt mode: speech rewritten into a concise AI prompt. Empty = default; "Off" disables it.</summary>
+    public string PromptHotkey { get; set; } = "";
     /// <summary>false = the blue cursor shows only while listening, thinking, speaking or pointing.</summary>
     public bool AlwaysShowCursor { get; set; }
 
@@ -86,6 +88,8 @@ public sealed class AppSettings
         string.IsNullOrWhiteSpace(DictateHotkey) ? Config.DictateHotkey : DictateHotkey;
     [JsonIgnore] public string EffectiveWriteHotkey =>
         string.IsNullOrWhiteSpace(WriteHotkey) ? Config.WriteHotkey : WriteHotkey;
+    [JsonIgnore] public string EffectivePromptHotkey =>
+        string.IsNullOrWhiteSpace(PromptHotkey) ? Config.PromptHotkey : PromptHotkey;
 
     [JsonIgnore] public double EffectiveVoiceSpeed => Math.Clamp(VoiceSpeed is > 0 ? VoiceSpeed : 1.0, 0.7, 1.2);
 

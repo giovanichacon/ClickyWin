@@ -53,6 +53,7 @@ public partial class SetupWindow : Window
             [ShortcutAction.Ask] = AskBox,
             [ShortcutAction.Dictate] = DictateBox,
             [ShortcutAction.Write] = WriteBox,
+            [ShortcutAction.Prompt] = PromptBox,
         };
 
         Title = L.SetupTitle;
@@ -91,13 +92,15 @@ public partial class SetupWindow : Window
         AskLabel.Text = L.HotkeyAsk;
         DictateLabel.Text = L.HotkeyDictate;
         WriteLabel.Text = L.HotkeyWrite;
-        AskChange.Content = DictateChange.Content = WriteChange.Content = L.HotkeyChange;
-        AskReset.Content = DictateReset.Content = WriteReset.Content = L.HotkeyDefault;
-        DictateOff.Content = WriteOff.Content = L.HotkeyOff;
+        PromptLabel.Text = L.HotkeyPrompt;
+        AskChange.Content = DictateChange.Content = WriteChange.Content = PromptChange.Content = L.HotkeyChange;
+        AskReset.Content = DictateReset.Content = WriteReset.Content = PromptReset.Content = L.HotkeyDefault;
+        DictateOff.Content = WriteOff.Content = PromptOff.Content = L.HotkeyOff;
         ShortcutHelp.Text = L.HotkeyHelp;
         SetShortcut(ShortcutAction.Ask, settings.EffectiveHotkey);
         SetShortcut(ShortcutAction.Dictate, settings.EffectiveDictateHotkey);
         SetShortcut(ShortcutAction.Write, settings.EffectiveWriteHotkey);
+        SetShortcut(ShortcutAction.Prompt, settings.EffectivePromptHotkey);
 
         // Dictation
         CleanupBox.Content = L.CleanupLabel;
@@ -185,6 +188,7 @@ public partial class SetupWindow : Window
     {
         var n when n.StartsWith("Dictate") => ShortcutAction.Dictate,
         var n when n.StartsWith("Write") => ShortcutAction.Write,
+        var n when n.StartsWith("Prompt") => ShortcutAction.Prompt,
         _ => ShortcutAction.Ask,
     };
 
@@ -192,6 +196,7 @@ public partial class SetupWindow : Window
     {
         ShortcutAction.Dictate => _settings.Config.DictateHotkey,
         ShortcutAction.Write => _settings.Config.WriteHotkey,
+        ShortcutAction.Prompt => _settings.Config.PromptHotkey,
         _ => _settings.Config.Hotkey,
     };
 
@@ -392,6 +397,7 @@ public partial class SetupWindow : Window
         _settings.Hotkey = StoredShortcut(ShortcutAction.Ask);
         _settings.DictateHotkey = StoredShortcut(ShortcutAction.Dictate);
         _settings.WriteHotkey = StoredShortcut(ShortcutAction.Write);
+        _settings.PromptHotkey = StoredShortcut(ShortcutAction.Prompt);
 
         _settings.DictationCleanup = CleanupBox.IsChecked == true;
         _settings.LearnWords = LearnBox.IsChecked == true;

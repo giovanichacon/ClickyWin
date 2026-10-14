@@ -25,7 +25,7 @@ public partial class App
     private MainWindow? _mainWindow;
     private AppSettings _settings = new();
     private SetupWindow? _setupWindow;
-    private string _askText = HotkeyParser.Default, _dictateText = "", _writeText = "";
+    private string _askText = HotkeyParser.Default, _dictateText = "", _writeText = "", _promptText = "";
     private string _lastQuestion = "", _lastAnswer = "";
 
     // Which shortcut owns the current gesture. Touched only on the hook's event task (one at a time).
@@ -100,7 +100,7 @@ public partial class App
 
         SetupTrayIcon();
 
-        Logger.Log($"Clicky ready. Ask: {_askText} | Dictate: {_dictateText} | Write: {_writeText}");
+        Logger.Log($"Clicky ready. Ask: {_askText} | Dictate: {_dictateText} | Write: {_writeText} | Prompt: {_promptText}");
         if (e.Args.Contains("--panel"))
             _panel.ShowNearTray();
         else if (_settings.HasRequiredKeys && !e.Args.Contains("--settings"))
@@ -117,8 +117,9 @@ public partial class App
         _askText = Bind(ShortcutAction.Ask, _settings.EffectiveHotkey, _settings.Config.Hotkey, false, bindings);
         _dictateText = Bind(ShortcutAction.Dictate, _settings.EffectiveDictateHotkey, _settings.Config.DictateHotkey, true, bindings);
         _writeText = Bind(ShortcutAction.Write, _settings.EffectiveWriteHotkey, _settings.Config.WriteHotkey, true, bindings);
+        _promptText = Bind(ShortcutAction.Prompt, _settings.EffectivePromptHotkey, _settings.Config.PromptHotkey, true, bindings);
         _keys?.SetBindings(bindings);
-        _panel?.SetShortcuts(_askText, _dictateText, _writeText);
+        _panel?.SetShortcuts(_askText, _dictateText, _writeText, _promptText);
     }
 
     private static string Bind(ShortcutAction action, string text, string fallback, bool handsFree,
@@ -144,7 +145,12 @@ public partial class App
             if (_companion.IsListening || _dictation.IsBusy) return;
             _gestureOwner = action;
             _companion.StopSpeaking();
-            _dictation.Start(action == ShortcutAction.Write ? DictationMode.Write : DictationMode.Dictate);
+            _dictation.Start(action switch
+            {
+                ShortcutAction.Write => DictationMode.Write,
+                ShortcutAction.Prompt => DictationMode.Prompt,
+                _ => DictationMode.Dictate,
+            });
         }
     }
 

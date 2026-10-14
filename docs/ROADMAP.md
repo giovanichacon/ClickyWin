@@ -2,7 +2,8 @@
 
 **Status 2026-10-14:** P1, D1–D4, P3 (panel, copy answer, autostart, voice speed), P4 (streaming TTS),
 P5 (R2R publish profile) and tutor mode are implemented. Not done: P2 overlay rewrite / multi-monitor
-(user skipped multi-monitor). Measured idle: ~1 s to ready, ~84 MB private (full-screen overlay is the
+(user skipped multi-monitor). Added later: Prompt mode (Shift+Win) and precise pointing (PointRefiner:
+UI Automation name match, else full-resolution zoom crop; fixed a taskbar icon miss of ~550 px). Measured idle: ~1 s to ready, ~84 MB private (full-screen overlay is the
 biggest remaining cost).
 
 Sources: farzaa/clicky README (open-source macOS app, Apr 2026), heyclicky.com/changelog

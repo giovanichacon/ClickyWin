@@ -44,8 +44,8 @@ public partial class QuickPanel : Window
         TutorBox.IsChecked = _settings.TutorMode;
     }
 
-    public void SetShortcuts(string ask, string dictate, string write) =>
-        ShortcutsText.Text = L.PanelShortcuts(ask, dictate, write);
+    public void SetShortcuts(string ask, string dictate, string write, string prompt) =>
+        ShortcutsText.Text = L.PanelShortcuts(ask, dictate, write, prompt);
 
     public void SetState(AppState state)
     {
@@ -74,7 +74,7 @@ public partial class QuickPanel : Window
         DictationList.ItemsSource = entries
             .Select(e => new DictationItem(
                 e.Text.ReplaceLineEndings(" "),
-                $"{e.At:HH:mm} · {(e.Mode == DictationMode.Write ? "✎ " : "")}{e.App}",
+                $"{e.At:HH:mm} · {e.Mode switch { DictationMode.Write => "✎ ", DictationMode.Prompt => "➜ ", _ => "" }}{e.App}",
                 e.Text))
             .ToList();
         DictationsLabel.Visibility = DictationList.Visibility =

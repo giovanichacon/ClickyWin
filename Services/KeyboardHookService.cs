@@ -5,7 +5,7 @@ using ClickyWindows.Helpers;
 namespace ClickyWindows.Services;
 
 /// <summary>What a shortcut does.</summary>
-public enum ShortcutAction { Ask, Dictate, Write }
+public enum ShortcutAction { Ask, Dictate, Write, Prompt }
 
 /// <summary>
 /// Global shortcuts through a low-level keyboard hook (WH_KEYBOARD_LL) on its own thread.

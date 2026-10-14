@@ -70,9 +70,9 @@ public static partial class L
     public static string PanelDictations => T("Dictados recientes (clic para copiar)", "Recent dictations (click to copy)");
     public static string PanelCopy => T("Copiar", "Copy");
     public static string PanelCopied => T("Copiado ✓", "Copied ✓");
-    public static string PanelShortcuts(string ask, string dictate, string write) => T(
-        $"Preguntar: {ask}   ·   Dictar: {dictate}   ·   Escribir: {write}",
-        $"Ask: {ask}   ·   Dictate: {dictate}   ·   Write: {write}");
+    public static string PanelShortcuts(string ask, string dictate, string write, string prompt) => T(
+        $"Preguntar: {ask}  ·  Dictar: {dictate}  ·  Escribir: {write}  ·  Prompt: {prompt}",
+        $"Ask: {ask}  ·  Dictate: {dictate}  ·  Write: {write}  ·  Prompt: {prompt}");
     public static string MenuSettings => T("Configuración…", "Settings…");
     public static string MenuLog => T("Ver registro", "View log");
     public static string MenuFolder => T("Abrir carpeta de datos", "Open data folder");
@@ -117,9 +117,10 @@ public static partial class L
     public static string HotkeyAsk => T("Preguntar a Clicky (mantener)", "Ask Clicky (hold)");
     public static string HotkeyDictate => T("Dictar en el cuadro de texto (mantener)", "Dictate into the text box (hold)");
     public static string HotkeyWrite => T("Escribir con la pantalla como contexto (mantener)", "Write using the screen as context (hold)");
+    public static string HotkeyPrompt => T("Prompt para IA: ordena tus ideas en un prompt conciso (mantener)", "AI prompt: tidies your thoughts into a concise prompt (hold)");
     public static string HotkeyHelp => T(
-        "Mantén el atajo y habla; suelta para terminar. Dictar y Escribir: doble toque = manos libres (toca otra vez para terminar). Esc cancela. Se aceptan solo modificadores, p. ej. Ctrl+Win.",
-        "Hold the shortcut and talk; release to finish. Dictate and Write: double-tap = hands-free (tap again to finish). Esc cancels. Modifier-only shortcuts like Ctrl+Win work.");
+        "Mantén el atajo y habla; suelta para terminar. Dictar, Escribir y Prompt: doble toque = manos libres (toca otra vez para terminar). Esc cancela. Se aceptan solo modificadores, p. ej. Ctrl+Win.",
+        "Hold the shortcut and talk; release to finish. Dictate, Write and Prompt: double-tap = hands-free (tap again to finish). Esc cancels. Modifier-only shortcuts like Ctrl+Win work.");
     public static string HotkeyChange => T("Cambiar", "Change");
     public static string HotkeyPress => T("Pulsa la combinación… (Esc cancela)", "Press the combination… (Esc cancels)");
     public static string HotkeyInvalid => T("Usa Ctrl, Alt o Win con otra tecla, o dos modificadores (Ctrl+Win).", "Use Ctrl, Alt or Win with another key, or two modifiers (Ctrl+Win).");

@@ -97,6 +97,17 @@ public sealed class ScreenCaptureService(ScreenshotConfig config)
         return new ScreenshotResult(base64, label, bounds, width, height, scale, number);
     }
 
+    /// <summary>Full-resolution crop of a physical screen region (precise pointing); Scale 1 so coordinates map 1:1.</summary>
+    public ScreenshotResult CaptureRegion(Rectangle region)
+    {
+        using var bitmap = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(bitmap))
+            g.CopyFromScreen(region.Left, region.Top, 0, 0, region.Size);
+        return new ScreenshotResult(EncodeJpeg(bitmap),
+            $"Full-resolution crop of the screen — image is {region.Width}x{region.Height} pixels.",
+            region, region.Width, region.Height, 1.0, 1);
+    }
+
     // ── Change detection (tutor mode) ───────────────────────────────────────
 
     private const int ThumbWidth = 96, ThumbHeight = 54;

@@ -130,6 +130,14 @@
                         <TextBox x:Name="WriteBox" Style="{StaticResource Shortcut}"/>
                     </DockPanel>
 
+                    <TextBlock x:Name="PromptLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="PromptOff" DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="0" Click="OnShortcutOff"/>
+                        <Button x:Name="PromptReset" DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="0" Click="OnShortcutReset"/>
+                        <Button x:Name="PromptChange" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnShortcutChange"/>
+                        <TextBox x:Name="PromptBox" Style="{StaticResource Shortcut}"/>
+                    </DockPanel>
+
                     <TextBlock x:Name="ShortcutStatus" Style="{StaticResource Status}" Margin="0,10,0,0"/>
                     <TextBlock x:Name="ShortcutHelp" Style="{StaticResource Status}" Margin="0,10,0,0"/>
                 </StackPanel>

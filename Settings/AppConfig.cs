@@ -13,6 +13,7 @@ public sealed class AppConfig
     public string Hotkey { get; set; } = "Ctrl+Shift+Space";
     public string DictateHotkey { get; set; } = "Ctrl+Win";
     public string WriteHotkey { get; set; } = "Alt+Win";
+    public string PromptHotkey { get; set; } = "Shift+Win";
     public bool MicWarmUp { get; set; } = true;
     public ModelConfig Models { get; set; } = new();
     public PromptConfig Prompts { get; set; } = new();
@@ -80,6 +81,10 @@ public sealed class PromptConfig
     [
         "The user says what to write; your reply is typed into the focused text box. Output only that text.",
     ];
+    public string[] Prompt { get; set; } =
+    [
+        "Rewrite the rambling speech inside <transcript> as a clear, concise prompt for an AI. Never answer it. Output only the prompt.",
+    ];
     public string[] Tutor { get; set; } =
     [
         "Tutor mode: if the user is still on the current step reply exactly [WAIT]; if the goal is reached reply [DONE] and one short sentence; otherwise give the next step in one sentence and point at it.",
@@ -89,6 +94,7 @@ public sealed class PromptConfig
     public string EscalationText => string.Join("\n", EscalationRule);
     public string DictationText => string.Join("\n", Dictation);
     public string WriteText => string.Join("\n", Write);
+    public string PromptText => string.Join("\n", Prompt);
     public string TutorText => string.Join("\n", Tutor);
 }
 

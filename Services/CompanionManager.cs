@@ -24,6 +24,7 @@ public sealed class CompanionManager : IAsyncDisposable
     private readonly ScreenCaptureService _screen;
     private readonly ClaudeService _claude;
     private readonly SpeechService _tts;
+    private readonly PointRefiner _pointer;
     private readonly ConversationHistory _history;
 
     private readonly object _gate = new();
@@ -50,6 +51,7 @@ public sealed class CompanionManager : IAsyncDisposable
         _screen = new ScreenCaptureService(settings.Config.Screenshots);
         _claude = new ClaudeService(settings, _history);
         _tts = new SpeechService(settings);
+        _pointer = new PointRefiner(_claude, _screen);
     }
 
     public AppState State
@@ -277,9 +279,21 @@ public sealed class CompanionManager : IAsyncDisposable
         var shot = screenshots.FirstOrDefault(x => x.Number == point.Screen) ?? screenshots[0];
         var (x, y) = shot.ToPhysical(point.X, point.Y);
         Logger.Log($"[Claude] POINT \"{point.Label}\" screen {shot.Number} ({point.X},{point.Y}) → physical ({x:F0},{y:F0})");
-        if (!ct.IsCancellationRequested)
-            PointReceived?.Invoke(x, y, point.Label);
+        _ = PointAsync(x, y, point.Label, ClaudeService.StripPointTags(replySoFar), shot.Bounds, ct);
         return true;
+    }
+
+    /// <summary>Snaps the guess onto the real element (UI Automation, else a zoomed look), then flies there.</summary>
+    private async Task PointAsync(double x, double y, string label, string description,
+        System.Drawing.Rectangle screenBounds, CancellationToken ct)
+    {
+        try
+        {
+            (x, y) = await _pointer.RefineAsync(x, y, label, description, screenBounds, ct).ConfigureAwait(false);
+            if (!ct.IsCancellationRequested)
+                PointReceived?.Invoke(x, y, label);
+        }
+        catch (OperationCanceledException) { }
     }
 
     // ── Tutor mode ──────────────────────────────────────────────────────────

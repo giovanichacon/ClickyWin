@@ -1,7 +1,7 @@
 # ClickyWin — Windows port of farzaa/clicky (C# WPF, .NET 10)
 
 Hold Ask (Ctrl+Shift+Space) → mic → AssemblyAI → Claude (screenshots) → streamed voice + blue dot pointing.
-Hold Dictate (Ctrl+Win) / Write (Alt+Win) → text typed at the caret. Shortcuts via WH_KEYBOARD_LL (`KeyboardHookService`).
+Hold Dictate (Ctrl+Win) / Write (Alt+Win) / Prompt (Shift+Win, speech → concise AI prompt) → text typed at the caret. Shortcuts via WH_KEYBOARD_LL (`KeyboardHookService`).
 Base: emreyilmaz46/clicky_windows (MIT), remote `upstream`. Work on branch `dev`; tag `v0.0-upstream` = original.
 
 ## Layout
@@ -12,6 +12,7 @@ Base: emreyilmaz46/clicky_windows (MIT), remote `upstream`. Work on branch `dev`
 - `Services/AudioCaptureService.cs`: one reused WASAPI client (fast restart), 100 ms PCM16/16k frames.
 - `Services/AssemblyAIService.cs`: single send loop (pre-roll), ForceEndpoint + Terminate, all turns joined.
 - `Services/SpeechService.cs`: ElevenLabs, falls back to Windows SAPI voices.
+- `Services/PointRefiner.cs`: snaps [POINT] guesses onto UIA elements by name (taskbar/foreground), else a full-res zoom crop.
 - `Services/ScreenCaptureService.cs`: images kept under Claude no-resize limits so [POINT] coords map back exactly.
 - `Helpers/L.cs`: ES/EN strings ("Auto" follows the language last spoken).
 

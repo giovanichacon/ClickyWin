@@ -6,13 +6,14 @@ using ClickyWindows.Settings;
 
 namespace ClickyWindows.Services;
 
-public enum DictationMode { Dictate, Write }
+public enum DictationMode { Dictate, Write, Prompt }
 
 public sealed record DictationEntry(DateTime At, DictationMode Mode, string Text, string App);
 
 /// <summary>
-/// Voice typing, in two modes:
+/// Voice typing, in three modes:
 /// - Dictate: speech → (optional) faithful cleanup by the everyday model → typed at the caret.
+/// - Prompt: think-out-loud speech → rewritten as a concise AI prompt (repeats merged, final intent kept).
 /// - Write: "reply that I'll be there at 5" → the screen, the focused box's text and selection
 ///   (UI Automation) and the request go to Claude → its text is typed at the caret, replacing
 ///   any selection.
@@ -24,6 +25,7 @@ public sealed record DictationEntry(DateTime At, DictationMode Mode, string Text
 public sealed class DictationManager : IAsyncDisposable
 {
     private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan PromptTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan LearnDelay = TimeSpan.FromSeconds(20);
     private const int HistorySize = 20;
 
@@ -159,9 +161,9 @@ public sealed class DictationManager : IAsyncDisposable
             L.NoteSpoken(transcript);
 
             var focus = await run.Focus.ConfigureAwait(false);
-            string text = run.Mode == DictationMode.Dictate
-                ? await CleanUpAsync(transcript, focus, ct).ConfigureAwait(false)
-                : await WriteAsync(transcript, focus, await run.Screens.ConfigureAwait(false), ct).ConfigureAwait(false);
+            string text = run.Mode == DictationMode.Write
+                ? await WriteAsync(transcript, focus, await run.Screens.ConfigureAwait(false), ct).ConfigureAwait(false)
+                : await CleanUpAsync(run.Mode, transcript, focus, ct).ConfigureAwait(false);
 
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -215,19 +217,23 @@ public sealed class DictationManager : IAsyncDisposable
         }
     }
 
-    /// <summary>Faithful cleanup; falls back to the raw transcript if the model is slow, fails or "answers".</summary>
-    private async Task<string> CleanUpAsync(string transcript, FocusContext focus, CancellationToken ct)
+    /// <summary>
+    /// Dictate: faithful cleanup. Prompt: rewrite into a concise AI prompt (always on).
+    /// Falls back to the raw transcript if the model is slow, fails or "answers".
+    /// </summary>
+    private async Task<string> CleanUpAsync(DictationMode mode, string transcript, FocusContext focus, CancellationToken ct)
     {
-        if (!_settings.DictationCleanup) return transcript;
+        bool prompt = mode == DictationMode.Prompt;
+        if (!prompt && !_settings.DictationCleanup) return transcript;
 
-        var system = _settings.Config.Prompts.DictationText;
+        var system = prompt ? _settings.Config.Prompts.PromptText : _settings.Config.Prompts.DictationText;
         if (_settings.Dictionary.Count > 0)
             system += "\n\nUser's dictionary: " + string.Join(", ", _settings.Dictionary);
         if (!string.IsNullOrEmpty(focus.App))
             system += $"\nThe text will be typed into: {focus.Describe()}.";
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(CleanupTimeout);
+        timeout.CancelAfter(prompt ? PromptTimeout : CleanupTimeout);
         try
         {
             var cleaned = (await _claude.CompleteAsync(system,
@@ -235,21 +241,22 @@ public sealed class DictationManager : IAsyncDisposable
                 new ReplyInfo(), allowEscalation: false, timeout.Token).ConfigureAwait(false)).Trim();
 
             // A reply much longer than what was said means the model answered instead of cleaning
-            if (cleaned.Length == 0 || cleaned.Length > transcript.Length * 2 + 40)
+            int limit = prompt ? transcript.Length * 3 / 2 + 80 : transcript.Length * 2 + 40;
+            if (cleaned.Length == 0 || cleaned.Length > limit)
             {
-                Logger.Log($"[Dictate] Cleanup output rejected: \"{cleaned}\"");
+                Logger.Log($"[{mode}] Cleanup output rejected: \"{cleaned}\"");
                 return transcript;
             }
             return cleaned;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            Logger.Log("[Dictate] Cleanup timed out — using the raw transcript");
+            Logger.Log($"[{mode}] Cleanup timed out — using the raw transcript");
             return transcript;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Logger.Log($"[Dictate] Cleanup failed ({ex.Message}) — using the raw transcript");
+            Logger.Log($"[{mode}] Cleanup failed ({ex.Message}) — using the raw transcript");
             return transcript;
         }
     }
