@@ -20,5 +20,5 @@ Base: emreyilmaz46/clicky_windows (MIT), remote `upstream`. Work on branch `dev`
 - Tests: scratch harness compiles Services/Helpers/Models/Settings against a fake local Claude SSE server.
 
 ## Open phases
-2 overlay (full-screen layered window → small moving windows, CompositionTarget.Rendering, per-monitor DPI),
-3 hotkey (WH_KEYBOARD_LL on own thread), 6 ElevenLabs streaming, 7 release build (R2R, measure RAM/startup).
+See `docs/ROADMAP.md` (gap analysis vs mac Clicky/HeyClicky + dictation plan P1/D1–D4).
+`--settings` opens the Setup window on launch (handy for screenshots/tests).
