@@ -1,0 +1,95 @@
+<Window x:Class="ClickyWindows.SetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Clicky"
+        Width="560"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        Background="#FAFAFA">
+
+    <Window.Resources>
+        <Style x:Key="Section" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,10,0,4"/>
+        </Style>
+        <Style x:Key="Status" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#666"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="MinWidth" Value="84"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Padding" Value="4,3"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="6,3"/>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="22,16,22,20">
+        <TextBlock x:Name="IntroText" Foreground="#555" TextWrapping="Wrap"/>
+
+        <!-- Claude -->
+        <TextBlock x:Name="ClaudeLabel" Style="{StaticResource Section}"/>
+        <DockPanel>
+            <Button x:Name="ClaudeTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestClaude"/>
+            <PasswordBox x:Name="ClaudeKey"/>
+        </DockPanel>
+        <TextBlock x:Name="ClaudeStatus" Style="{StaticResource Status}"/>
+
+        <!-- AssemblyAI -->
+        <TextBlock x:Name="AssemblyLabel" Style="{StaticResource Section}"/>
+        <DockPanel>
+            <Button x:Name="AssemblyTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestAssembly"/>
+            <PasswordBox x:Name="AssemblyKey"/>
+        </DockPanel>
+        <TextBlock x:Name="AssemblyStatus" Style="{StaticResource Status}"/>
+
+        <!-- Voice -->
+        <TextBlock x:Name="VoiceLabel" Style="{StaticResource Section}"/>
+        <ComboBox x:Name="VoiceBox"/>
+        <TextBlock x:Name="ElevenLabel" Style="{StaticResource Section}"/>
+        <DockPanel>
+            <Button x:Name="ElevenTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestEleven"/>
+            <PasswordBox x:Name="ElevenKey"/>
+        </DockPanel>
+        <TextBlock x:Name="ElevenStatus" Style="{StaticResource Status}"/>
+
+        <!-- Microphone -->
+        <TextBlock x:Name="MicLabel" Style="{StaticResource Section}"/>
+        <ComboBox x:Name="MicBox" SelectionChanged="OnMicChanged"/>
+        <ProgressBar x:Name="MicLevel" Height="8" Margin="0,6,0,0" Maximum="1" Foreground="#3380FF"/>
+        <TextBlock x:Name="MicHint" Style="{StaticResource Status}"/>
+
+        <!-- Models + language -->
+        <Grid Margin="0,4,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock x:Name="ModelLabel" Style="{StaticResource Section}"/>
+                <ComboBox x:Name="ModelBox"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock x:Name="EscalationLabel" Style="{StaticResource Section}"/>
+                <ComboBox x:Name="EscalationBox"/>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock x:Name="LanguageLabel" Style="{StaticResource Section}"/>
+        <ComboBox x:Name="LanguageBox" HorizontalAlignment="Left" MinWidth="200"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button x:Name="CancelButton" IsCancel="True" Margin="0,0,8,0" Click="OnCancel"/>
+            <Button x:Name="SaveButton" IsDefault="True" Click="OnSave"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

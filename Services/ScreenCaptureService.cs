@@ -1,119 +1,108 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
 using ClickyWindows.Helpers;
+using ClickyWindows.Settings;
 
 namespace ClickyWindows.Services;
 
-public record ScreenshotResult(
-    byte[] JpegBytes,      // raw JPEG data
-    string Base64,         // base64-encoded JPEG for Claude API
-    string Label,          // human-readable label (e.g., "Primary display — cursor here at (1234, 567)")
-    Rectangle Bounds       // physical pixel bounds of the captured screen
-);
+/// <param name="Base64">JPEG for the Claude API</param>
+/// <param name="Label">Text sent next to the image: screen number, image size, cursor position</param>
+/// <param name="Bounds">Physical pixel bounds of the captured screen</param>
+/// <param name="Scale">Image pixels per physical pixel (≤ 1)</param>
+/// <param name="Number">1 = the screen with the cursor</param>
+public record ScreenshotResult(string Base64, string Label, Rectangle Bounds, int Width, int Height, double Scale, int Number)
+{
+    /// <summary>Maps a point in this image's pixel space back to physical screen pixels.</summary>
+    public (double x, double y) ToPhysical(int imageX, int imageY) =>
+        (Bounds.Left + Math.Clamp(imageX, 0, Width - 1) / Scale,
+         Bounds.Top + Math.Clamp(imageY, 0, Height - 1) / Scale);
+}
 
 /// <summary>
-/// Captures JPEG screenshots of all connected monitors using GDI (System.Drawing).
-/// Reliable, no extra packages required, produces JPEG at quality 80 (matching macOS Clicky).
-/// The monitor where the cursor is located is returned first.
+/// Captures every monitor with GDI and downsizes each image to stay inside Claude's
+/// no-resize limits (long edge and megapixels). If Claude resized the image itself, the
+/// [POINT:x,y] coordinates it returns would be in an unknown scale; this way they map back
+/// to the screen exactly. The screen under the cursor is always screen 1.
+///
+/// One frame per question, so GDI is fast enough (tens of ms); DXGI duplication would only
+/// pay off for continuous capture. Call from a background thread.
 /// </summary>
-public class ScreenCaptureService
+public sealed class ScreenCaptureService(ScreenshotConfig config)
 {
-    private const long JpegQuality = 80L;
+    private static readonly ImageCodecInfo JpegCodec =
+        ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
 
     public List<ScreenshotResult> CaptureAll()
     {
-        Win32.GetCursorPos(out var cursorPos);
-
-        var results = new List<ScreenshotResult>();
-        var screens = Screen.AllScreens;
-
-        // Sort: screen containing cursor comes first
-        var sorted = screens
-            .OrderByDescending(s => s.Bounds.Contains(cursorPos.X, cursorPos.Y))
+        Win32.GetCursorPos(out var cursor);
+        var screens = Screen.AllScreens
+            .OrderByDescending(s => s.Bounds.Contains(cursor.X, cursor.Y))
             .ToList();
 
-        foreach (var screen in sorted)
+        var results = new List<ScreenshotResult>(screens.Count);
+        for (int i = 0; i < screens.Count; i++)
         {
-            var result = CaptureScreen(screen, cursorPos);
-            if (result != null)
-                results.Add(result);
+            try
+            {
+                results.Add(Capture(screens[i].Bounds, i + 1, screens.Count, cursor));
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[Screen] Capture of screen {i + 1} failed: {ex.Message}");
+            }
         }
-
         return results;
     }
 
-    private static ScreenshotResult? CaptureScreen(Screen screen, Win32.POINT cursorPos)
+    private ScreenshotResult Capture(Rectangle bounds, int number, int total, Win32.POINT cursor)
     {
-        try
+        double scale = Math.Min(1.0, Math.Min(
+            (double)config.MaxLongEdge / Math.Max(bounds.Width, bounds.Height),
+            Math.Sqrt(config.MaxMegapixels * 1_000_000 / ((double)bounds.Width * bounds.Height))));
+        int width = Math.Max(1, (int)Math.Floor(bounds.Width * scale));
+        int height = Math.Max(1, (int)Math.Floor(bounds.Height * scale));
+        scale = (double)width / bounds.Width; // exact ratio after rounding
+
+        using var full = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(full))
+            g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size);
+
+        string base64;
+        if (width == bounds.Width && height == bounds.Height)
         {
-            var bounds = screen.Bounds;
-            using var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(bitmap))
+            base64 = EncodeJpeg(full);
+        }
+        else
+        {
+            using var scaled = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(scaled))
             {
-                g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size);
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.DrawImage(full, 0, 0, width, height);
             }
-
-            bool hasCursor = bounds.Contains(cursorPos.X, cursorPos.Y);
-            string label = hasCursor
-                ? $"Display '{screen.DeviceName}' (primary display with cursor at physical pixel ({cursorPos.X}, {cursorPos.Y}))"
-                : $"Display '{screen.DeviceName}' (secondary display, no cursor)";
-
-            byte[] jpeg = EncodeJpeg(bitmap);
-            string base64 = Convert.ToBase64String(jpeg);
-
-            return new ScreenshotResult(jpeg, base64, label, bounds);
+            base64 = EncodeJpeg(scaled);
         }
-        catch
+
+        string label = $"Screen {number} of {total} — image is {width}x{height} pixels.";
+        if (bounds.Contains(cursor.X, cursor.Y))
         {
-            return null;
+            int cx = (int)((cursor.X - bounds.Left) * scale);
+            int cy = (int)((cursor.Y - bounds.Top) * scale);
+            label += $" The user's mouse cursor is at ({cx},{cy}) in this image.";
         }
+
+        return new ScreenshotResult(base64, label, bounds, width, height, scale, number);
     }
 
-    /// <summary>
-    /// Captures a specific screen region and resizes it to the given dimensions.
-    /// Used to produce a Computer Use-compatible screenshot at the expected CU resolution.
-    /// </summary>
-    public ScreenshotResult? CaptureResized(System.Drawing.Rectangle bounds, int targetWidth, int targetHeight)
+    private string EncodeJpeg(Bitmap bitmap)
     {
-        try
-        {
-            using var fullBitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(fullBitmap))
-                g.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size);
-
-            using var resized = new Bitmap(targetWidth, targetHeight, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(resized))
-            {
-                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                g.DrawImage(fullBitmap, 0, 0, targetWidth, targetHeight);
-            }
-
-            byte[] jpeg = EncodeJpeg(resized);
-            string base64 = Convert.ToBase64String(jpeg);
-            return new ScreenshotResult(jpeg, base64, $"Resized {targetWidth}x{targetHeight}", bounds);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static byte[] EncodeJpeg(Bitmap bitmap)
-    {
-        var jpegEncoder = GetEncoder(ImageFormat.Jpeg)!;
-        var encoderParams = new EncoderParameters(1);
-        encoderParams.Param[0] = new EncoderParameter(
-            System.Drawing.Imaging.Encoder.Quality, JpegQuality);
-
+        using var parameters = new EncoderParameters(1);
+        parameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)config.JpegQuality);
         using var ms = new MemoryStream();
-        bitmap.Save(ms, jpegEncoder, encoderParams);
-        return ms.ToArray();
-    }
-
-    private static ImageCodecInfo? GetEncoder(ImageFormat format)
-    {
-        return ImageCodecInfo.GetImageEncoders()
-            .FirstOrDefault(c => c.FormatID == format.Guid);
+        bitmap.Save(ms, JpegCodec, parameters);
+        return Convert.ToBase64String(ms.GetBuffer(), 0, (int)ms.Length);
     }
 }

@@ -24,10 +24,6 @@ public sealed class AudioCaptureService : IDisposable
     public const int TargetSampleRate = 16000;
     private const int FrameBytes = TargetSampleRate * 2 / 10; // 100 ms of PCM16 mono
 
-    // KSDATAFORMAT_SUBTYPE_* GUIDs, for WAVE_FORMAT_EXTENSIBLE mix formats
-    private static readonly Guid SubtypeIeeeFloat = new("00000003-0000-0010-8000-00aa00389b71");
-    private static readonly Guid SubtypePcm       = new("00000001-0000-0010-8000-00aa00389b71");
-
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly MMDeviceEnumerator _enumerator = new();
     private readonly DeviceWatcher _watcher;
@@ -35,11 +31,9 @@ public sealed class AudioCaptureService : IDisposable
     private volatile bool _stale;
     private volatile Recording? _active;
     private TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private volatile string _deviceId = "";
 
-    // Decoder for the current capture format
-    private bool _isFloat;
-    private int _bytesPerSample;
-    private int _channels;
+    private SampleDecoder _decoder; // for the current capture format
     private readonly float[] _monoBuffer = new float[8192];
     private readonly float[] _readBuffer = new float[4096];
 
@@ -47,6 +41,54 @@ public sealed class AudioCaptureService : IDisposable
     {
         _watcher = new DeviceWatcher(() => _stale = true);
         _enumerator.RegisterEndpointNotificationCallback(_watcher);
+    }
+
+    /// <summary>
+    /// WASAPI endpoint id of the mic to use; empty = Windows default. Takes effect on the
+    /// next press (the open client is rebuilt).
+    /// </summary>
+    public string DeviceId
+    {
+        get => _deviceId;
+        set
+        {
+            value ??= "";
+            if (value == _deviceId) return;
+            _deviceId = value;
+            _stale = true;
+        }
+    }
+
+    /// <summary>Active recording devices as (endpoint id, friendly name).</summary>
+    public static List<(string id, string name)> ListDevices()
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        var list = new List<(string, string)>();
+        foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
+        {
+            using (device) list.Add((device.ID, device.FriendlyName));
+        }
+        return list;
+    }
+
+    /// <summary>The configured device if it is still plugged in, else the Windows default.</summary>
+    internal static MMDevice ResolveDevice(MMDeviceEnumerator enumerator, string deviceId)
+    {
+        if (!string.IsNullOrEmpty(deviceId))
+        {
+            try
+            {
+                var device = enumerator.GetDevice(deviceId);
+                if (device.State == DeviceState.Active) return device;
+                device.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[Audio] Saved mic not available ({ex.Message})");
+            }
+            Logger.Log("[Audio] Saved mic not found — using the Windows default");
+        }
+        return enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console);
     }
 
     /// <summary>
@@ -114,21 +156,26 @@ public sealed class AudioCaptureService : IDisposable
         var previousContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(null);
         WasapiCapture capture;
-        try { capture = new WasapiCapture(); }
+        string name;
+        try
+        {
+            var device = ResolveDevice(_enumerator, _deviceId);
+            name = device.FriendlyName;
+            capture = new WasapiCapture(device);
+        }
         finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
 
         var fmt = capture.WaveFormat;
-        if (!TryDescribe(fmt, out _isFloat, out _bytesPerSample))
+        if (!SampleDecoder.TryCreate(fmt, out _decoder))
         {
             capture.Dispose();
             throw new NotSupportedException($"unsupported microphone format {fmt}");
         }
-        _channels = fmt.Channels;
         capture.DataAvailable += OnDataAvailable;
         capture.RecordingStopped += OnRecordingStopped;
         _capture = capture;
-        Logger.Log($"[Audio] Mic opened: {fmt.SampleRate} Hz, {fmt.Channels} ch, " +
-                   $"{fmt.BitsPerSample} bit {(_isFloat ? "float" : "PCM")}");
+        Logger.Log($"[Audio] Mic opened: {name} — {fmt.SampleRate} Hz, {fmt.Channels} ch, " +
+                   $"{fmt.BitsPerSample} bit {(_decoder.IsFloat ? "float" : "PCM")}");
         return capture;
     }
 
@@ -173,7 +220,8 @@ public sealed class AudioCaptureService : IDisposable
         var rec = _active;
         if (e.BytesRecorded == 0 || rec == null) return;
 
-        int blockAlign = _bytesPerSample * _channels;
+        var decoder = _decoder;
+        int blockAlign = decoder.BlockAlign;
         int frames = e.BytesRecorded / blockAlign;
         int total = frames;
         double sumSquares = 0;
@@ -187,9 +235,9 @@ public sealed class AudioCaptureService : IDisposable
             {
                 float sum = 0;
                 int p = offset + i * blockAlign;
-                for (int ch = 0; ch < _channels; ch++, p += _bytesPerSample)
-                    sum += ReadSample(e.Buffer, p);
-                float mono = sum / _channels;
+                for (int ch = 0; ch < decoder.Channels; ch++, p += decoder.BytesPerSample)
+                    sum += decoder.Read(e.Buffer, p);
+                float mono = sum / decoder.Channels;
                 _monoBuffer[i] = mono;
                 sumSquares += mono * mono;
             }
@@ -202,35 +250,6 @@ public sealed class AudioCaptureService : IDisposable
             rec.OnLevel?.Invoke(Math.Clamp((float)Math.Sqrt(sumSquares / total) * 10f, 0f, 1f));
 
         rec.Pump(_readBuffer);
-    }
-
-    private float ReadSample(byte[] buf, int p)
-    {
-        if (_isFloat)
-            return BitConverter.ToSingle(buf, p);
-
-        return _bytesPerSample switch
-        {
-            2 => BitConverter.ToInt16(buf, p) / 32768f,
-            3 => ((buf[p] << 8 | buf[p + 1] << 16 | buf[p + 2] << 24) >> 8) / 8388608f,
-            4 => BitConverter.ToInt32(buf, p) / 2147483648f,
-            _ => 0f,
-        };
-    }
-
-    private static bool TryDescribe(WaveFormat fmt, out bool isFloat, out int bytesPerSample)
-    {
-        bytesPerSample = fmt.BitsPerSample / 8;
-        var encoding = fmt.Encoding;
-        if (fmt is WaveFormatExtensible ext)
-        {
-            if (ext.SubFormat == SubtypeIeeeFloat) encoding = WaveFormatEncoding.IeeeFloat;
-            else if (ext.SubFormat == SubtypePcm) encoding = WaveFormatEncoding.Pcm;
-        }
-
-        isFloat = encoding == WaveFormatEncoding.IeeeFloat && bytesPerSample == 4;
-        bool isPcm = encoding == WaveFormatEncoding.Pcm && bytesPerSample is 2 or 3 or 4;
-        return (isFloat || isPcm) && fmt.Channels > 0;
     }
 
     private void DisposeCapture()
@@ -367,5 +386,55 @@ public sealed class AudioCaptureService : IDisposable
         public void OnDeviceAdded(string pwstrDeviceId) { }
         public void OnDeviceRemoved(string deviceId) => onChange();
         public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key) { }
+    }
+}
+
+/// <summary>Reads samples of a WASAPI mix format (float32 or PCM 16/24/32, plain or EXTENSIBLE).</summary>
+internal readonly struct SampleDecoder
+{
+    // KSDATAFORMAT_SUBTYPE_* GUIDs, for WAVE_FORMAT_EXTENSIBLE mix formats
+    private static readonly Guid SubtypeIeeeFloat = new("00000003-0000-0010-8000-00aa00389b71");
+    private static readonly Guid SubtypePcm       = new("00000001-0000-0010-8000-00aa00389b71");
+
+    public bool IsFloat { get; }
+    public int BytesPerSample { get; }
+    public int Channels { get; }
+    public int BlockAlign => BytesPerSample * Channels;
+
+    private SampleDecoder(bool isFloat, int bytesPerSample, int channels)
+    {
+        IsFloat = isFloat;
+        BytesPerSample = bytesPerSample;
+        Channels = channels;
+    }
+
+    public static bool TryCreate(WaveFormat fmt, out SampleDecoder decoder)
+    {
+        int bytesPerSample = fmt.BitsPerSample / 8;
+        var encoding = fmt.Encoding;
+        if (fmt is WaveFormatExtensible ext)
+        {
+            if (ext.SubFormat == SubtypeIeeeFloat) encoding = WaveFormatEncoding.IeeeFloat;
+            else if (ext.SubFormat == SubtypePcm) encoding = WaveFormatEncoding.Pcm;
+        }
+
+        bool isFloat = encoding == WaveFormatEncoding.IeeeFloat && bytesPerSample == 4;
+        bool isPcm = encoding == WaveFormatEncoding.Pcm && bytesPerSample is 2 or 3 or 4;
+        decoder = new SampleDecoder(isFloat, bytesPerSample, fmt.Channels);
+        return (isFloat || isPcm) && fmt.Channels > 0;
+    }
+
+    public float Read(byte[] buf, int p)
+    {
+        if (IsFloat)
+            return BitConverter.ToSingle(buf, p);
+
+        return BytesPerSample switch
+        {
+            2 => BitConverter.ToInt16(buf, p) / 32768f,
+            3 => ((buf[p] << 8 | buf[p + 1] << 16 | buf[p + 2] << 24) >> 8) / 8388608f,
+            4 => BitConverter.ToInt32(buf, p) / 2147483648f,
+            _ => 0f,
+        };
     }
 }

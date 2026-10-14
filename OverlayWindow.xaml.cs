@@ -48,11 +48,7 @@ public partial class OverlayWindow : Window
     // ── Label hold timer ────────────────────────────────────────────────────
     private DispatcherTimer? _labelTimer;
 
-    // ── Utterance phrases (same pool as original Clicky) ───────────────────
-    private static readonly string[] Utterances =
-    [
-        "right here!", "this one!", "over here!", "click this!", "here it is!", "found it!"
-    ];
+    // ── Utterance phrases (same pool as original Clicky, localized in L) ───
     private static readonly Random Rng = new();
 
     // ── Timers ──────────────────────────────────────────────────────────────
@@ -320,7 +316,8 @@ public partial class OverlayWindow : Window
         System.Windows.Controls.Canvas.SetTop(TargetLabel,  _flightTargetY + 12);
 
         // Use a random utterance phrase (same pool as original Clicky)
-        TargetLabelText.Text = Utterances[Rng.Next(Utterances.Length)];
+        var utterances = L.Utterances;
+        TargetLabelText.Text = utterances[Rng.Next(utterances.Length)];
         TargetLabel.Opacity    = 0;
         TargetLabel.Visibility = Visibility.Visible;
 

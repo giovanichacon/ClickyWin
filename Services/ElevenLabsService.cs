@@ -46,13 +46,13 @@ public class ElevenLabsService : IDisposable
 
     private async Task<byte[]> FetchAudioAsync(string text, CancellationToken ct)
     {
-        var voiceId = _settings.ElevenLabsVoiceId;
-        var url = _settings.ElevenLabsApiUrl(voiceId);
+        var url = $"{_settings.Config.Endpoints.ElevenLabs.TrimEnd('/')}/v1/text-to-speech/" +
+                  Uri.EscapeDataString(_settings.EffectiveElevenLabsVoiceId);
 
         var body = new
         {
             text,
-            model_id = "eleven_flash_v2_5",
+            model_id = _settings.Config.Speech.ElevenLabsModel,
             voice_settings = new
             {
                 stability = 0.5,
@@ -68,12 +68,11 @@ public class ElevenLabsService : IDisposable
                 "application/json"),
         };
 
-        if (!string.IsNullOrWhiteSpace(_settings.ElevenLabsApiKey))
-            request.Headers.Add("xi-api-key", _settings.ElevenLabsApiKey);
+        request.Headers.Add("xi-api-key", _settings.ElevenLabsApiKey);
 
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("audio/mpeg"));
 
-        var response = await Http.SendAsync(request, ct);
+        using var response = await Http.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
         {
             var err = await response.Content.ReadAsStringAsync(ct);
@@ -117,5 +116,23 @@ public class ElevenLabsService : IDisposable
     {
         _player?.Dispose();
         _reader?.Dispose();
+    }
+
+    /// <summary>Checks a key against the account endpoint (no characters used).</summary>
+    public static async Task<(bool ok, string message)> TestKeyAsync(string key, string baseUrl)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl.TrimEnd('/')}/v1/user");
+            request.Headers.Add("xi-api-key", key.Trim());
+            using var response = await Http.SendAsync(request);
+            return response.IsSuccessStatusCode
+                ? (true, "OK")
+                : (false, $"{(int)response.StatusCode} {response.ReasonPhrase}");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
     }
 }

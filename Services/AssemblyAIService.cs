@@ -51,11 +51,33 @@ public sealed class AssemblyAIService : IAsyncDisposable
     /// <summary>Set when the session failed (connect error, abnormal close). Null on success.</summary>
     public string? Error { get; private set; }
 
-    public AssemblyAIService(string apiKey, string speechModel)
+    public AssemblyAIService(string apiKey, string endpoint, string speechModel)
     {
         _apiKey = apiKey;
-        _uri = new Uri("wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le" +
+        _uri = new Uri($"{endpoint}?sample_rate=16000&encoding=pcm_s16le" +
                        $"&speech_model={Uri.EscapeDataString(speechModel)}");
+    }
+
+    /// <summary>
+    /// Checks a key with the REST API (lists at most one transcript, nothing is billed).
+    /// </summary>
+    public static async Task<(bool ok, string message)> TestKeyAsync(string key)
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var request = new System.Net.Http.HttpRequestMessage(
+                System.Net.Http.HttpMethod.Get, "https://api.assemblyai.com/v2/transcript?limit=1");
+            request.Headers.TryAddWithoutValidation("Authorization", key.Trim());
+            using var response = await http.SendAsync(request).ConfigureAwait(false);
+            return response.IsSuccessStatusCode
+                ? (true, "OK")
+                : (false, $"{(int)response.StatusCode} {response.ReasonPhrase}");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
     }
 
     /// <summary>Queues a PCM16 frame. Callable from any thread, before or after the socket opens.</summary>

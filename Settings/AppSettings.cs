@@ -1,85 +1,177 @@
-using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ClickyWindows.Helpers;
 
 namespace ClickyWindows.Settings;
 
-public class AppSettings
+/// <summary>
+/// Per-user settings in %APPDATA%\ClickyWindows\settings.json, written by the Setup window.
+/// API keys are kept in memory as plain strings but stored encrypted with Windows DPAPI
+/// (CurrentUser scope): the file is useless on another account or machine.
+/// Shipped defaults (prompts, hotkey, endpoints) come from <see cref="Config"/>.
+/// </summary>
+public sealed class AppSettings
 {
-    // API keys — loaded from settings file, never hardcoded
-    public string AnthropicApiKey { get; set; } = "";
-    public string ElevenLabsApiKey { get; set; } = "";
-    public string ElevenLabsVoiceId { get; set; } = "21m00Tcm4TlvDq8ikWAM"; // default ElevenLabs voice
-    public string AssemblyAiApiKey { get; set; } = "";
+    private static readonly byte[] Entropy = "ClickyWindows.v1"u8.ToArray();
 
-    // Optional Cloudflare proxy URLs (leave empty to call APIs directly)
-    public string ClaudeProxyUrl { get; set; } = "";
-    public string ElevenLabsProxyUrl { get; set; } = "";
-    public string AssemblyAiTokenUrl { get; set; } = "";
+    public static string Folder { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClickyWindows");
+    public static string FilePath { get; } = Path.Combine(Folder, "settings.json");
 
-    // Push-to-talk hotkey — default: Ctrl+Shift+Space
-    public uint HotkeyModifiers { get; set; } = 0x0002 | 0x0004; // MOD_CONTROL | MOD_SHIFT
-    public uint HotkeyVirtualKey { get; set; } = 0x20; // VK_SPACE
+    [JsonIgnore] public AppConfig Config { get; private set; } = new();
 
-    // Open the mic briefly at startup so the first press starts recording instantly
-    // (the Windows mic indicator blinks once at launch)
-    public bool MicWarmUp { get; set; } = true;
+    // ── Secrets (decrypted in memory, never serialized as plain text) ───────
+    [JsonIgnore] public string AnthropicApiKey { get; set; } = "";
+    [JsonIgnore] public string AssemblyAiApiKey { get; set; } = "";
+    [JsonIgnore] public string ElevenLabsApiKey { get; set; } = "";
 
-    // AssemblyAI streaming model — universal-3-6-pro code-switches Spanish/English automatically
-    public string AssemblyAiSpeechModel { get; set; } = "universal-3-6-pro";
+    /// <summary>Name → base64 DPAPI blob. Only this form of the keys reaches disk.</summary>
+    public Dictionary<string, string> ProtectedKeys { get; set; } = new();
 
-    // Claude model
-    public string ClaudeModel { get; set; } = "claude-sonnet-4-6";
+    // ── User choices (empty = use the shipped default) ──────────────────────
+    /// <summary>WASAPI endpoint id of the microphone; empty = Windows default.</summary>
+    public string MicDeviceId { get; set; } = "";
+    /// <summary>"Auto" (ElevenLabs if a key is set, else Windows), "ElevenLabs" or "Windows".</summary>
+    public string Voice { get; set; } = "Auto";
+    public string ElevenLabsVoiceId { get; set; } = "";
+    public string PrimaryModel { get; set; } = "";
+    /// <summary>Empty = shipped default; "none" disables escalation.</summary>
+    public string EscalationModel { get; set; } = "";
+    /// <summary>"Auto" (follow the language you speak / Windows), "es" or "en".</summary>
+    public string Language { get; set; } = "Auto";
 
-    // Overlay settings
-    public bool ShowCursorOverlay { get; set; } = true;
+    // ── Effective values ────────────────────────────────────────────────────
+    [JsonIgnore] public string EffectivePrimaryModel =>
+        string.IsNullOrWhiteSpace(PrimaryModel) ? Config.Models.Primary : PrimaryModel;
 
-    // ── Persistence ────────────────────────────────────────────────────────
+    [JsonIgnore] public string? EffectiveEscalationModel
+    {
+        get
+        {
+            var model = string.IsNullOrWhiteSpace(EscalationModel) ? Config.Models.Escalation : EscalationModel;
+            return string.IsNullOrWhiteSpace(model) || model.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+                   model == EffectivePrimaryModel ? null : model;
+        }
+    }
 
-    private static readonly string SettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "ClickyWindows",
-        "settings.json");
+    [JsonIgnore] public string EffectiveElevenLabsVoiceId =>
+        string.IsNullOrWhiteSpace(ElevenLabsVoiceId) ? Config.Speech.ElevenLabsVoiceId : ElevenLabsVoiceId;
+
+    [JsonIgnore] public bool UseElevenLabs => Voice switch
+    {
+        "Windows" => false,
+        "ElevenLabs" => true,
+        _ => !string.IsNullOrWhiteSpace(ElevenLabsApiKey),
+    };
+
+    [JsonIgnore] public bool HasRequiredKeys =>
+        !string.IsNullOrWhiteSpace(AnthropicApiKey) && !string.IsNullOrWhiteSpace(AssemblyAiApiKey);
+
+    // ── Persistence ─────────────────────────────────────────────────────────
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        PropertyNameCaseInsensitive = true,
     };
 
     public static AppSettings Load()
     {
+        var config = AppConfig.Load();
+        AppSettings settings;
+        string? json = null;
         try
         {
-            if (File.Exists(SettingsPath))
-            {
-                var json = File.ReadAllText(SettingsPath);
-                return JsonSerializer.Deserialize<AppSettings>(json, JsonOpts) ?? new AppSettings();
-            }
+            json = File.Exists(FilePath) ? File.ReadAllText(FilePath) : null;
+            settings = json != null
+                ? JsonSerializer.Deserialize<AppSettings>(json, JsonOpts) ?? new AppSettings()
+                : new AppSettings();
         }
-        catch { /* ignore, use defaults */ }
+        catch (Exception ex)
+        {
+            Logger.Error($"[Settings] settings.json is invalid ({ex.Message}) — starting fresh");
+            settings = new AppSettings();
+        }
 
-        return new AppSettings();
+        settings.Config = config;
+        settings.AnthropicApiKey = settings.Unprotect(nameof(AnthropicApiKey));
+        settings.AssemblyAiApiKey = settings.Unprotect(nameof(AssemblyAiApiKey));
+        settings.ElevenLabsApiKey = settings.Unprotect(nameof(ElevenLabsApiKey));
+        settings.MigrateLegacy(json);
+        return settings;
     }
 
+    /// <summary>Encrypts the keys and writes the file atomically (temp file + replace).</summary>
     public void Save()
     {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, JsonOpts));
-        }
-        catch { /* ignore */ }
+        ProtectedKeys = new Dictionary<string, string>();
+        Protect(nameof(AnthropicApiKey), AnthropicApiKey);
+        Protect(nameof(AssemblyAiApiKey), AssemblyAiApiKey);
+        Protect(nameof(ElevenLabsApiKey), ElevenLabsApiKey);
+
+        Directory.CreateDirectory(Folder);
+        var temp = FilePath + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(this, JsonOpts));
+        File.Move(temp, FilePath, overwrite: true);
+        Logger.Log("[Settings] Saved");
     }
 
-    // Convenience: which API to call for Claude
-    public string ClaudeApiUrl =>
-        !string.IsNullOrWhiteSpace(ClaudeProxyUrl)
-            ? ClaudeProxyUrl
-            : "https://api.anthropic.com/v1/messages";
+    private void Protect(string name, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var blob = ProtectedData.Protect(Encoding.UTF8.GetBytes(value.Trim()), Entropy, DataProtectionScope.CurrentUser);
+        ProtectedKeys[name] = Convert.ToBase64String(blob);
+    }
 
-    public string ElevenLabsApiUrl(string voiceId) =>
-        !string.IsNullOrWhiteSpace(ElevenLabsProxyUrl)
-            ? ElevenLabsProxyUrl
-            : $"https://api.elevenlabs.io/v1/text-to-speech/{voiceId}";
+    private string Unprotect(string name)
+    {
+        if (!ProtectedKeys.TryGetValue(name, out var b64) || string.IsNullOrEmpty(b64)) return "";
+        try
+        {
+            var bytes = ProtectedData.Unprotect(Convert.FromBase64String(b64), Entropy, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[Settings] Could not decrypt {name} (saved by another Windows user?): {ex.Message}");
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Older versions stored keys in plain text: adopt them and rewrite the file encrypted
+    /// (unknown legacy fields are dropped by the rewrite).
+    /// </summary>
+    private void MigrateLegacy(string? json)
+    {
+        if (json == null) return;
+        System.Text.Json.Nodes.JsonObject? root;
+        try { root = System.Text.Json.Nodes.JsonNode.Parse(json) as System.Text.Json.Nodes.JsonObject; }
+        catch { return; }
+        if (root == null) return;
+
+        bool migrated = false;
+        foreach (var name in new[] { nameof(AnthropicApiKey), nameof(AssemblyAiApiKey), nameof(ElevenLabsApiKey) })
+        {
+            if (root[name] is not System.Text.Json.Nodes.JsonValue v || !v.TryGetValue(out string? value) ||
+                string.IsNullOrWhiteSpace(value))
+                continue;
+            var property = GetType().GetProperty(name)!;
+            if (string.IsNullOrWhiteSpace((string?)property.GetValue(this)))
+                property.SetValue(this, value);
+            migrated = true; // rewrite even if an encrypted copy exists, to remove the plain text
+        }
+        if (!migrated) return;
+        try
+        {
+            Save();
+            Logger.Log("[Settings] Moved plain-text API keys to encrypted storage");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"[Settings] Could not rewrite settings.json: {ex.Message}");
+        }
+    }
 }

@@ -1,7 +1,6 @@
 using System.Windows;
 using ClickyWindows.Helpers;
 using ClickyWindows.Services;
-using ClickyWindows.Settings;
 
 namespace ClickyWindows;
 
@@ -15,13 +14,13 @@ public partial class MainWindow : Window
     private readonly CompanionManager _companion;
     private readonly OverlayWindow _overlay;
 
-    public MainWindow(AppSettings settings, CompanionManager companion, OverlayWindow overlay)
+    public MainWindow(uint hotkeyModifiers, uint hotkeyVirtualKey, CompanionManager companion, OverlayWindow overlay)
     {
         InitializeComponent();
 
         _companion = companion;
         _overlay = overlay;
-        _hotkey = new HotkeyService(settings.HotkeyModifiers, settings.HotkeyVirtualKey);
+        _hotkey = new HotkeyService(hotkeyModifiers, hotkeyVirtualKey);
 
         // Companion events fire on background threads. Marshal with InvokeAsync, never Invoke:
         // a blocking hop would stall the caller (audio thread, network loops) whenever the UI is busy.

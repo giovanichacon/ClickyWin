@@ -1,308 +1,292 @@
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Anthropic;
+using Anthropic.Models.Beta.Messages;
 using ClickyWindows.Helpers;
 using ClickyWindows.Models;
 using ClickyWindows.Settings;
 
 namespace ClickyWindows.Services;
 
-public record ClaudeResponse(string Text, List<PointTarget> Points);
-public record PointTarget(int X, int Y, string Label);
+public record PointTarget(int X, int Y, string Label, int Screen);
+
+/// <summary>What happened while producing one reply (filled in as the stream runs).</summary>
+public sealed class ReplyInfo
+{
+    public string Model { get; set; } = "";
+    public bool Escalated { get; set; }
+    public bool Refused { get; set; }
+}
 
 /// <summary>
-/// Streams responses from Claude (claude-sonnet-4-6) via Server-Sent Events.
-/// Parses [POINT:x,y:label] tags from the response for overlay positioning.
-/// Maintains conversation history for context across turns.
+/// Streams replies from Claude through the official Anthropic SDK.
+///
+/// Routing: the everyday model (Haiku by default, thinking off, low effort) answers first.
+/// Its system prompt lets it reply with exactly [ESCALATE] when a question needs deeper
+/// reasoning; the first characters are held back until that is ruled out, and on [ESCALATE]
+/// the same request goes to the stronger model (Opus by default) instead.
+///
+/// Parses [POINT:x,y:label(:screenN)] tags (screenshot pixel coordinates) for the overlay
+/// and keeps a rolling text history for follow-up questions.
 /// </summary>
-public partial class ClaudeService
+public sealed partial class ClaudeService(AppSettings settings, ConversationHistory history)
 {
-    private static readonly HttpClient Http = new();
+    private const string EscalateTag = "[ESCALATE]";
+    private const string FallbackBeta = "server-side-fallback-2026-07-01";
 
-    // Match [POINT:123,456:element_name] tags in Claude's response
-    [GeneratedRegex(@"\[POINT:(\d+),(\d+):([^\]]*)\]")]
+    // Models that accept server-side refusal fallbacks ("default" routing by refusal category)
+    private static readonly HashSet<string> FallbackModels = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"];
+
+    // USD per million input/output tokens, for the cost line in the log
+    private static readonly Dictionary<string, (double input, double output)> Prices = new()
+    {
+        ["claude-haiku-5-5"] = (0.10, 0.50),
+        ["claude-sonnet-5-5"] = (2.00, 10.00),
+        ["claude-opus-5-5"] = (4.00, 20.00),
+    };
+
+    [GeneratedRegex(@"\[POINT:(\d+),(\d+):([^\]:]*)(?::screen(\d+))?\]", RegexOptions.IgnoreCase)]
     private static partial Regex PointTagRegex();
 
-    private static readonly string SystemPrompt = """
-        You are Clicky, a helpful AI assistant that can see the user's screen.
-        You help users understand what they're looking at and answer questions about on-screen content.
+    [GeneratedRegex(@"\s*\[POINT:[^\]]*\]", RegexOptions.IgnoreCase)]
+    private static partial Regex AnyPointTag();
 
-        POINT tags — use ONLY when the user explicitly asks you to locate, show, find, or point to
-        a specific element on screen (e.g. "where is the save button?", "point to the menu").
-        Do NOT include POINT tags for general questions, greetings, or answers that don't require
-        highlighting a specific location.
-
-        When a POINT tag IS appropriate, format it as [POINT:x,y:label] where x,y are the screen
-        coordinates in pixels of the element center, and label is a short description (2-4 words).
-
-        Keep all responses concise and conversational — responses are spoken aloud via text-to-speech.
-        Do not use markdown, bullet points, numbered lists, or code blocks.
-        Speak naturally as if talking to someone sitting next to you.
-        Always reply in the same language the user spoke to you in.
-        """;
-
-    private readonly AppSettings _settings;
-    private readonly ConversationHistory _history;
-
-    public ClaudeService(AppSettings settings, ConversationHistory history)
-    {
-        _settings = settings;
-        _history = history;
-
-        // Pre-configure headers
-        Http.DefaultRequestHeaders.Remove("x-api-key");
-        if (!string.IsNullOrWhiteSpace(settings.AnthropicApiKey))
-            Http.DefaultRequestHeaders.Add("x-api-key", settings.AnthropicApiKey);
-        Http.DefaultRequestHeaders.Remove("anthropic-version");
-        Http.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
-    }
+    private readonly object _clientLock = new();
+    private AnthropicClient? _client;
+    private string _clientKey = "";
+    private string _clientUrl = "";
 
     /// <summary>
-    /// Sends transcript + screenshots to Claude and streams back the response.
-    /// Yields text chunks as they arrive.
+    /// Sends transcript + screenshots and yields reply text chunks as they arrive.
+    /// <paramref name="info"/> reports the model used, escalation and refusals.
     /// </summary>
-    public async IAsyncEnumerable<string> StreamResponseAsync(
+    public async IAsyncEnumerable<string> StreamReplyAsync(
         string transcript,
-        List<Services.ScreenshotResult> screenshots,
+        IReadOnlyList<ScreenshotResult> screenshots,
+        ReplyInfo info,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        // Build the content array: images first, then text
-        var contentArray = new JsonArray();
+        var userContent = BuildUserContent(transcript, screenshots);
+        var primary = settings.EffectivePrimaryModel;
+        var escalation = settings.EffectiveEscalationModel;
+        var reply = new StringBuilder();
 
-        foreach (var shot in screenshots)
+        if (escalation == null)
         {
-            contentArray.Add(new JsonObject
+            await foreach (var chunk in StreamModelAsync(primary, false, userContent, info, ct).ConfigureAwait(false))
             {
-                ["type"] = "image",
-                ["source"] = new JsonObject
-                {
-                    ["type"] = "base64",
-                    ["media_type"] = "image/jpeg",
-                    ["data"] = shot.Base64,
-                },
-            });
-            contentArray.Add(new JsonObject
-            {
-                ["type"] = "text",
-                ["text"] = shot.Label,
-            });
-        }
-
-        contentArray.Add(new JsonObject
-        {
-            ["type"] = "text",
-            ["text"] = transcript,
-        });
-
-        // Build messages array with conversation history
-        var messages = new JsonArray();
-        foreach (var turn in _history.Turns)
-        {
-            messages.Add(new JsonObject
-            {
-                ["role"] = turn.Role,
-                ["content"] = turn.Content,
-            });
-        }
-        // Add current user message (text only for history, images are in current message)
-        messages.Add(new JsonObject
-        {
-            ["role"] = "user",
-            ["content"] = contentArray,
-        });
-
-        var body = new JsonObject
-        {
-            ["model"] = _settings.ClaudeModel,
-            ["max_tokens"] = 1024,
-            ["stream"] = true,
-            ["system"] = SystemPrompt,
-            ["messages"] = messages,
-        };
-
-        var request = new HttpRequestMessage(HttpMethod.Post, _settings.ClaudeApiUrl)
-        {
-            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
-        };
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        }
-        catch (Exception ex)
-        {
-            throw new Exception($"Claude API request failed: {ex.Message}", ex);
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            throw new Exception($"Claude API error {(int)response.StatusCode}: {errorBody}");
-        }
-
-        var fullResponse = new StringBuilder();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var reader = new System.IO.StreamReader(stream);
-
-        // ReadLineAsync returns null at end of stream; EndOfStream would block synchronously
-        string? line;
-        while ((line = await reader.ReadLineAsync(ct)) != null)
-        {
-
-            if (!line.StartsWith("data: ")) continue;
-            var data = line["data: ".Length..];
-            if (data == "[DONE]") break;
-
-            string? chunk = null;
-            try
-            {
-                var node = JsonNode.Parse(data);
-                if (node?["type"]?.GetValue<string>() == "content_block_delta")
-                    chunk = node["delta"]?["text"]?.GetValue<string>();
-            }
-            catch { continue; }
-
-            if (!string.IsNullOrEmpty(chunk))
-            {
-                fullResponse.Append(chunk);
+                reply.Append(chunk);
                 yield return chunk;
             }
         }
+        else
+        {
+            // Hold back the start of the reply until it can't be the escalation tag
+            var head = new StringBuilder();
+            bool decided = false, escalate = false;
 
-        // Save to conversation history (strip POINT tags for cleaner history)
-        var responseText = fullResponse.ToString();
-        var cleanText = PointTagRegex().Replace(responseText, "").Trim();
-        _history.AddUserMessage(transcript);
-        _history.AddAssistantMessage(cleanText);
+            await foreach (var chunk in StreamModelAsync(primary, true, userContent, info, ct).ConfigureAwait(false))
+            {
+                if (decided)
+                {
+                    reply.Append(chunk);
+                    yield return chunk;
+                    continue;
+                }
+
+                head.Append(chunk);
+                var start = head.ToString().TrimStart();
+                if (start.Length < EscalateTag.Length && EscalateTag.StartsWith(start, StringComparison.OrdinalIgnoreCase))
+                    continue; // could still become [ESCALATE]
+
+                decided = true;
+                if (start.StartsWith(EscalateTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    escalate = true;
+                    break; // abandons the primary stream (the HTTP response is closed)
+                }
+                reply.Append(head);
+                yield return head.ToString();
+            }
+
+            if (!decided)
+            {
+                var start = head.ToString().Trim();
+                if (start.StartsWith("[ESCALATE", StringComparison.OrdinalIgnoreCase))
+                    escalate = true;
+                else if (start.Length > 0)
+                {
+                    reply.Append(head);
+                    yield return head.ToString();
+                }
+            }
+
+            if (escalate)
+            {
+                info.Escalated = true;
+                Logger.Log($"[Claude] {primary} escalated the question to {escalation}");
+                await foreach (var chunk in StreamModelAsync(escalation, false, userContent, info, ct).ConfigureAwait(false))
+                {
+                    reply.Append(chunk);
+                    yield return chunk;
+                }
+            }
+        }
+
+        if (reply.Length > 0)
+        {
+            history.AddUserMessage(transcript);
+            history.AddAssistantMessage(StripPointTags(reply.ToString()));
+        }
     }
 
-    /// <summary>
-    /// Parses [POINT:x,y:label] tags from a complete response string.
-    /// </summary>
-    public static List<PointTarget> ParsePoints(string responseText)
+    private async IAsyncEnumerable<string> StreamModelAsync(
+        string model,
+        bool allowEscalation,
+        List<BetaContentBlockParam> userContent,
+        ReplyInfo info,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        var cfg = settings.Config;
+        bool isEscalation = model == settings.EffectiveEscalationModel;
+        var system = allowEscalation
+            ? cfg.Prompts.SystemText + "\n\n" + cfg.Prompts.EscalationText
+            : cfg.Prompts.SystemText;
+
+        var messages = new List<BetaMessageParam>();
+        foreach (var turn in history.Turns)
+            messages.Add(new BetaMessageParam { Role = turn.Role == "user" ? Role.User : Role.Assistant, Content = turn.Content });
+        messages.Add(new BetaMessageParam { Role = Role.User, Content = userContent });
+
+        var parameters = new MessageCreateParams
+        {
+            Model = model,
+            MaxTokens = isEscalation ? cfg.Models.EscalationMaxTokens : cfg.Models.PrimaryMaxTokens,
+            System = system,
+            Messages = messages,
+            OutputConfig = new BetaOutputConfig
+            {
+                Effort = ParseEffort(isEscalation ? cfg.Models.EscalationEffort : cfg.Models.PrimaryEffort),
+            },
+        };
+
+        // Haiku 5.5 may run with thinking off (fastest spoken replies); Opus/Sonnet 5.5
+        // reject disabled thinking, so they run adaptive and are steered by effort.
+        if (model.StartsWith("claude-haiku-5", StringComparison.Ordinal))
+            parameters = parameters with { Thinking = new BetaThinkingConfigDisabled() };
+
+        // A safety-classifier refusal is re-served by a fallback model inside the same call
+        if (FallbackModels.Contains(model))
+            parameters = parameters with { Betas = [FallbackBeta], Fallbacks = new Default() };
+
+        info.Model = model;
+        long inputTokens = 0, outputTokens = 0;
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        double firstTextMs = -1;
+
+        try
+        {
+            await foreach (var ev in Client().Beta.Messages.CreateStreaming(parameters, ct).ConfigureAwait(false))
+            {
+                if (ev.TryPickStart(out var start))
+                {
+                    inputTokens = start.Message.Usage.InputTokens;
+                }
+                else if (ev.TryPickContentBlockDelta(out var delta) && delta.Delta.TryPickText(out var text))
+                {
+                    if (firstTextMs < 0)
+                        firstTextMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    yield return text.Text;
+                }
+                else if (ev.TryPickDelta(out var messageDelta))
+                {
+                    outputTokens = messageDelta.Usage.OutputTokens;
+                    if (messageDelta.Delta.StopReason == BetaStopReason.Refusal)
+                    {
+                        info.Refused = true;
+                        Logger.Log($"[Claude] {model} declined the request");
+                    }
+                }
+            }
+        }
+        finally
+        {
+            var cost = Prices.TryGetValue(model, out var p)
+                ? $" ≈ ${(inputTokens * p.input + outputTokens * p.output) / 1_000_000:F5}"
+                : "";
+            Logger.Log($"[Claude] {model}: first text {firstTextMs:F0} ms, " +
+                       $"{inputTokens} in / {outputTokens} out tokens{cost}");
+        }
+    }
+
+    private static List<BetaContentBlockParam> BuildUserContent(string transcript, IReadOnlyList<ScreenshotResult> screenshots)
+    {
+        var content = new List<BetaContentBlockParam>();
+        foreach (var shot in screenshots)
+        {
+            content.Add(new BetaImageBlockParam
+            {
+                Source = new BetaBase64ImageSource { Data = shot.Base64, MediaType = "image/jpeg" },
+            });
+            content.Add(new BetaTextBlockParam { Text = shot.Label });
+        }
+        content.Add(new BetaTextBlockParam { Text = transcript });
+        return content;
+    }
+
+    private static string ParseEffort(string effort) => effort.ToLowerInvariant() switch
+    {
+        "low" or "medium" or "high" or "xhigh" or "max" => effort.ToLowerInvariant(),
+        _ => "medium",
+    };
+
+    private AnthropicClient Client()
+    {
+        lock (_clientLock)
+        {
+            var key = settings.AnthropicApiKey;
+            var url = settings.Config.Endpoints.Anthropic;
+            if (_client == null || key != _clientKey || url != _clientUrl)
+            {
+                _client = new AnthropicClient { ApiKey = key, BaseUrl = url };
+                _clientKey = key;
+                _clientUrl = url;
+            }
+            return _client;
+        }
+    }
+
+    /// <summary>Checks a key by looking up the everyday model (free, no tokens used).</summary>
+    public static async Task<(bool ok, string message)> TestKeyAsync(string key, string baseUrl, string model)
+    {
+        try
+        {
+            var client = new AnthropicClient { ApiKey = key.Trim(), BaseUrl = baseUrl };
+            var info = await client.Models.Retrieve(model).ConfigureAwait(false);
+            return (true, info.DisplayName);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message.Split('\n')[0]);
+        }
+    }
+
+    /// <summary>Parses [POINT:x,y:label] and [POINT:x,y:label:screenN] tags.</summary>
+    public static List<PointTarget> ParsePoints(string text)
     {
         var points = new List<PointTarget>();
-        foreach (Match m in PointTagRegex().Matches(responseText))
+        foreach (Match m in PointTagRegex().Matches(text))
         {
-            if (int.TryParse(m.Groups[1].Value, out int x) &&
-                int.TryParse(m.Groups[2].Value, out int y))
+            if (int.TryParse(m.Groups[1].Value, out int x) && int.TryParse(m.Groups[2].Value, out int y))
             {
-                points.Add(new PointTarget(x, y, m.Groups[3].Value));
+                int screen = m.Groups[4].Success && int.TryParse(m.Groups[4].Value, out int s) ? s : 1;
+                points.Add(new PointTarget(x, y, m.Groups[3].Value.Trim(), screen));
             }
         }
         return points;
     }
 
-    /// <summary>
-    /// Strips [POINT:...] tags from text before sending to TTS.
-    /// </summary>
-    public static string StripPointTags(string text) =>
-        PointTagRegex().Replace(text, "").Trim();
-
-    /// <summary>
-    /// Uses Claude's Computer Use API to precisely locate a named UI element on screen.
-    /// Sends a resized screenshot (at CU resolution) and gets back physical pixel coordinates.
-    /// Returns (-1, -1) if the element cannot be found.
-    /// </summary>
-    public async Task<(int physX, int physY)> DetectElementAsync(
-        string base64Jpeg,
-        string elementDescription,
-        int screenWidth, int screenHeight,
-        CancellationToken ct = default)
-    {
-        var (cuW, cuH) = CoordinateHelper.DetectComputerUseResolution(screenWidth, screenHeight);
-
-        var body = new JsonObject
-        {
-            ["model"] = _settings.ClaudeModel,
-            ["max_tokens"] = 256,
-            ["tools"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["type"] = "computer_20251124",
-                    ["name"] = "computer",
-                    ["display_width_px"] = cuW,
-                    ["display_height_px"] = cuH,
-                },
-            },
-            ["messages"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["role"] = "user",
-                    ["content"] = new JsonArray
-                    {
-                        new JsonObject
-                        {
-                            ["type"] = "image",
-                            ["source"] = new JsonObject
-                            {
-                                ["type"] = "base64",
-                                ["media_type"] = "image/jpeg",
-                                ["data"] = base64Jpeg,
-                            },
-                        },
-                        new JsonObject
-                        {
-                            ["type"] = "text",
-                            ["text"] = $"Locate the '{elementDescription}' element on this screen and move the mouse to it.",
-                        },
-                    },
-                },
-            },
-        };
-
-        var request = new HttpRequestMessage(HttpMethod.Post, _settings.ClaudeApiUrl)
-        {
-            Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
-        };
-        request.Headers.Add("anthropic-beta", "computer-use-2025-11-24");
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await Http.SendAsync(request, ct);
-        }
-        catch (Exception ex)
-        {
-            throw new Exception($"Computer Use API request failed: {ex.Message}", ex);
-        }
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        if (!response.IsSuccessStatusCode)
-            throw new Exception($"Computer Use API error {(int)response.StatusCode}: {json}");
-
-        var node = JsonNode.Parse(json);
-        var content = node?["content"]?.AsArray();
-        if (content != null)
-        {
-            foreach (var block in content)
-            {
-                if (block?["type"]?.GetValue<string>() == "tool_use" &&
-                    block?["name"]?.GetValue<string>() == "computer")
-                {
-                    var coord = block?["input"]?["coordinate"]?.AsArray();
-                    if (coord?.Count >= 2)
-                    {
-                        int cuX = coord[0]!.GetValue<int>();
-                        int cuY = coord[1]!.GetValue<int>();
-                        // Scale from CU space to physical pixels
-                        int physX = (int)((double)cuX / cuW * screenWidth);
-                        int physY = (int)((double)cuY / cuH * screenHeight);
-                        return (physX, physY);
-                    }
-                }
-            }
-        }
-
-        return (-1, -1);
-    }
+    /// <summary>Removes [POINT:...] tags (including [POINT:none]) before speaking or storing text.</summary>
+    public static string StripPointTags(string text) => AnyPointTag().Replace(text, "").Trim();
 }

@@ -19,9 +19,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Official Claude SDK -->
+    <PackageReference Include="Anthropic" Version="12.55.0" />
     <!-- Real-time WASAPI audio capture + MP3 playback -->
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <!-- Free offline Windows voices (SAPI) when ElevenLabs is not configured -->
+    <PackageReference Include="System.Speech" Version="10.0.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shipped defaults: prompts, hotkey, endpoints, models. User choices live in %APPDATA% -->
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -17,6 +17,8 @@ public partial class App
     private OverlayWindow? _overlay;
     private MainWindow? _mainWindow;
     private AppSettings _settings = new();
+    private SetupWindow? _setupWindow;
+    private string _hotkeyText = HotkeyParser.Default;
 
     // Held in a field for the whole process lifetime: a local would be collected by the GC,
     // releasing the mutex and letting a second instance start.
@@ -34,7 +36,7 @@ public partial class App
             _singleInstanceMutex.Dispose();
             _singleInstanceMutex = null;
             System.Windows.MessageBox.Show(
-                "Clicky is already running. Check the system tray.",
+                L.AlreadyRunning,
                 "Clicky", MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown();
             return;
@@ -49,47 +51,57 @@ public partial class App
         Logger.Log("=== Clicky starting ===");
 
         _settings = AppSettings.Load();
-        Logger.Log($"Settings loaded from: {Logger.LogFilePath.Replace("clicky.log", "settings.json")}");
+        L.Setting = _settings.Language;
+        Logger.Log($"Settings: {AppSettings.FilePath} | config: {AppConfig.FilePath}");
+        Logger.Log($"Models: {_settings.EffectivePrimaryModel} → {_settings.EffectiveEscalationModel ?? "no escalation"}");
 
-        if (!ValidateSettings())
-        {
-            Shutdown();
-            return;
-        }
+        var (mods, vk, hotkeyText) = HotkeyParser.ParseOrDefault(_settings.Config.Hotkey);
+        _hotkeyText = hotkeyText;
 
         _companion = new CompanionManager(_settings);
-        if (_settings.MicWarmUp)
+        if (_settings.Config.MicWarmUp)
             _ = _companion.WarmUpMicAsync();
 
         _overlay = new OverlayWindow();
         _overlay.Show();
 
-        _mainWindow = new MainWindow(_settings, _companion, _overlay);
+        _mainWindow = new MainWindow(mods, vk, _companion, _overlay);
         MainWindow = _mainWindow;
         _mainWindow.Show();
 
         SetupTrayIcon();
 
-        Logger.Log($"Clicky ready. Hotkey: {GetHotkeyDescription()}");
-        Logger.Log($"Log file: {Logger.LogFilePath}");
-        ShowBalloon($"Clicky ready! Hold {GetHotkeyDescription()} to talk.", ToolTipIcon.Info);
+        Logger.Log($"Clicky ready. Hotkey: {_hotkeyText}");
+        if (_settings.HasRequiredKeys)
+            ShowBalloon(L.Ready(_hotkeyText), ToolTipIcon.Info);
+        else
+            OpenSetup(); // first run: keys are needed before anything works
     }
 
-    private bool ValidateSettings()
+    private void OpenSetup()
     {
-        if (string.IsNullOrWhiteSpace(_settings.AnthropicApiKey) &&
-            string.IsNullOrWhiteSpace(_settings.ClaudeProxyUrl))
+        if (_setupWindow != null)
         {
-            _settings.Save();
-            var path = Logger.LogFilePath.Replace("clicky.log", "settings.json");
-            System.Windows.MessageBox.Show(
-                $"Please add your API keys to:\n{path}\n\n" +
-                "Required fields:\n• AnthropicApiKey\n• ElevenLabsApiKey\n• AssemblyAiApiKey",
-                "Clicky — Setup Required",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            return false;
+            _setupWindow.Activate();
+            return;
         }
-        return true;
+
+        _setupWindow = new SetupWindow(_settings);
+        try
+        {
+            if (_setupWindow.ShowDialog() == true)
+            {
+                _companion?.ApplySettings();
+                RebuildTrayMenu();
+                Logger.Log($"Models: {_settings.EffectivePrimaryModel} → {_settings.EffectiveEscalationModel ?? "no escalation"}");
+                if (_settings.HasRequiredKeys)
+                    ShowBalloon(L.Ready(_hotkeyText), ToolTipIcon.Info);
+            }
+        }
+        finally
+        {
+            _setupWindow = null;
+        }
     }
 
     private void SetupTrayIcon()
@@ -104,35 +116,29 @@ public partial class App
         }
         var icon = System.Drawing.Icon.FromHandle(bitmap.GetHicon());
 
-        var hotkeyDesc = GetHotkeyDescription();
-        _trayIcon = new NotifyIcon
-        {
-            Icon = icon,
-            Text = $"Clicky — Hold {hotkeyDesc} to talk",
-            Visible = true,
-        };
-
-        var menu = new ContextMenuStrip();
-        menu.Items.Add($"Clicky  |  Hold {hotkeyDesc} to talk").Enabled = false;
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("View Log", null, (_, _) => OpenLog());
-        menu.Items.Add("Open Settings", null, (_, _) => OpenSettingsFolder());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Quit Clicky", null, (_, _) => QuitApp());
-
-        _trayIcon.ContextMenuStrip = menu;
-        _trayIcon.DoubleClick += (_, _) => OpenLog();
+        _trayIcon = new NotifyIcon { Icon = icon, Visible = true };
+        _trayIcon.DoubleClick += (_, _) => OpenSetup();
+        RebuildTrayMenu();
     }
 
-    private string GetHotkeyDescription()
+    /// <summary>Menu text follows the UI language, so it is rebuilt after Settings are saved.</summary>
+    private void RebuildTrayMenu()
     {
-        var parts = new List<string>();
-        if ((_settings.HotkeyModifiers & 0x0004) != 0) parts.Add("Shift");
-        if ((_settings.HotkeyModifiers & 0x0002) != 0) parts.Add("Ctrl");
-        if ((_settings.HotkeyModifiers & 0x0001) != 0) parts.Add("Alt");
-        if ((_settings.HotkeyModifiers & 0x0008) != 0) parts.Add("Win");
-        parts.Add(_settings.HotkeyVirtualKey == 0x20 ? "Space" : $"Key(0x{_settings.HotkeyVirtualKey:X})");
-        return string.Join("+", parts);
+        if (_trayIcon == null) return;
+        var old = _trayIcon.ContextMenuStrip;
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add($"Clicky  |  {L.HoldToTalk(_hotkeyText)}").Enabled = false;
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L.MenuSettings, null, (_, _) => OpenSetup());
+        menu.Items.Add(L.MenuLog, null, (_, _) => OpenLog());
+        menu.Items.Add(L.MenuFolder, null, (_, _) => OpenSettingsFolder());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(L.MenuQuit, null, (_, _) => QuitApp());
+
+        _trayIcon.ContextMenuStrip = menu;
+        _trayIcon.Text = $"Clicky — {L.HoldToTalk(_hotkeyText)}";
+        old?.Dispose();
     }
 
     private void ShowBalloon(string message, ToolTipIcon icon)

@@ -18,19 +18,13 @@ namespace ClickyWindows.Services;
 /// </summary>
 public sealed class CompanionManager : IAsyncDisposable
 {
-    // Spoken-style feedback shown in the overlay bubble. Localized in phase 5.
-    private const string MsgNoMic       = "I can't hear your microphone";
-    private const string MsgNoConnect   = "I couldn't connect";
-    private const string MsgNotHeard    = "Sorry, I didn't catch that";
-    private const string MsgNoAnswer    = "Sorry, I couldn't answer";
-
     private static readonly TimeSpan TranscriptTimeout = TimeSpan.FromSeconds(6);
 
     private readonly AppSettings _settings;
     private readonly AudioCaptureService _mic;
     private readonly ScreenCaptureService _screen;
     private readonly ClaudeService _claude;
-    private readonly ElevenLabsService _tts;
+    private readonly SpeechService _tts;
     private readonly ConversationHistory _history;
 
     private readonly object _gate = new();
@@ -48,12 +42,15 @@ public sealed class CompanionManager : IAsyncDisposable
     public CompanionManager(AppSettings settings)
     {
         _settings = settings;
-        _history = new ConversationHistory(maxTurns: 10);
-        _mic = new AudioCaptureService();
-        _screen = new ScreenCaptureService();
+        _history = new ConversationHistory(settings.Config.Models.ConversationTurns);
+        _mic = new AudioCaptureService { DeviceId = settings.MicDeviceId };
+        _screen = new ScreenCaptureService(settings.Config.Screenshots);
         _claude = new ClaudeService(settings, _history);
-        _tts = new ElevenLabsService(settings);
+        _tts = new SpeechService(settings);
     }
+
+    /// <summary>Picks up changes saved in the Setup window (keys and models are read per request).</summary>
+    public void ApplySettings() => _mic.DeviceId = _settings.MicDeviceId;
 
     public AppState State
     {
@@ -64,6 +61,13 @@ public sealed class CompanionManager : IAsyncDisposable
 
     public void OnPushToTalkPressed()
     {
+        if (!_settings.HasRequiredKeys)
+        {
+            Logger.Log("[Hotkey] PRESSED but API keys are missing");
+            FeedbackReceived?.Invoke(L.NeedKeys);
+            return;
+        }
+
         Session? previous;
         Session session;
         lock (_gate)
@@ -82,7 +86,8 @@ public sealed class CompanionManager : IAsyncDisposable
 
         // The transcription session exists before the mic starts, so every frame has a
         // destination; frames queue up (pre-roll) until the WebSocket is open.
-        session.Asr = new AssemblyAIService(_settings.AssemblyAiApiKey, _settings.AssemblyAiSpeechModel);
+        session.Asr = new AssemblyAIService(_settings.AssemblyAiApiKey,
+            _settings.Config.Endpoints.AssemblyAiStreaming, _settings.Config.Speech.AssemblyAiModel);
         session.AsrConnected = session.Asr.ConnectAsync();
         session.MicStarted = Task.Run(() => StartMicAsync(session));
     }
@@ -116,7 +121,7 @@ public sealed class CompanionManager : IAsyncDisposable
 
         if (recording == null)
         {
-            Feedback(session, MsgNoMic);
+            Feedback(session, L.NoMic);
             SetState(AppState.Idle, session);
             _ = session.DisposeAsync().AsTask();
             return false;
@@ -143,11 +148,12 @@ public sealed class CompanionManager : IAsyncDisposable
             if (string.IsNullOrWhiteSpace(transcript))
             {
                 await s.AsrConnected.ConfigureAwait(false);
-                Feedback(s, s.Asr.Error != null ? MsgNoConnect : MsgNotHeard);
+                Feedback(s, s.Asr.Error != null ? L.NoConnect : L.NotHeard);
                 return;
             }
 
             Logger.Log($"[Pipeline] Heard: \"{transcript}\"");
+            L.NoteSpoken(transcript);
             if (!s.Token.IsCancellationRequested) TranscriptConfirmed?.Invoke();
 
             var screenshots = await screenshotsTask.ConfigureAwait(false);
@@ -160,7 +166,7 @@ public sealed class CompanionManager : IAsyncDisposable
         catch (Exception ex)
         {
             Logger.Error($"[Pipeline] Unexpected error: {ex}");
-            Feedback(s, MsgNoAnswer);
+            Feedback(s, L.NoAnswer);
         }
         finally
         {
@@ -188,23 +194,26 @@ public sealed class CompanionManager : IAsyncDisposable
 
     private async Task ProcessResponseAsync(Session s, string transcript, List<ScreenshotResult> screenshots)
     {
-        Logger.Log($"[Claude] Sending transcript with {screenshots.Count} screenshot(s)");
-
-        var responseBuilder = new System.Text.StringBuilder();
-        PointTarget? detectedPoint = null;
+        var reply = new System.Text.StringBuilder();
+        var info = new ReplyInfo();
+        bool pointed = false;
 
         try
         {
-            await foreach (var chunk in _claude.StreamResponseAsync(transcript, screenshots, s.Token).ConfigureAwait(false))
+            await foreach (var chunk in _claude.StreamReplyAsync(transcript, screenshots, info, s.Token).ConfigureAwait(false))
             {
-                responseBuilder.Append(chunk);
+                reply.Append(chunk);
 
-                // Capture the first POINT tag label for CU refinement — don't fire yet
-                if (detectedPoint == null)
+                // Fly to the target as soon as the tag is complete, while the rest still streams
+                if (!pointed && screenshots.Count > 0 &&
+                    ClaudeService.ParsePoints(reply.ToString()) is [var point, ..])
                 {
-                    var pts = ClaudeService.ParsePoints(responseBuilder.ToString());
-                    if (pts.Count > 0)
-                        detectedPoint = pts[0];
+                    pointed = true;
+                    var shot = screenshots.FirstOrDefault(x => x.Number == point.Screen) ?? screenshots[0];
+                    var (x, y) = shot.ToPhysical(point.X, point.Y);
+                    Logger.Log($"[Claude] POINT \"{point.Label}\" screen {shot.Number} ({point.X},{point.Y}) → physical ({x:F0},{y:F0})");
+                    if (!s.Token.IsCancellationRequested)
+                        PointReceived?.Invoke(x, y, point.Label);
                 }
             }
         }
@@ -215,57 +224,17 @@ public sealed class CompanionManager : IAsyncDisposable
         catch (Exception ex)
         {
             Logger.Error($"Claude API error: {ex.Message}");
-            Feedback(s, MsgNoAnswer);
+            Feedback(s, L.NoAnswer);
             return;
         }
 
-        // Two-phase point detection: use Computer Use API for precise coordinates
-        if (detectedPoint != null && screenshots.Count > 0)
+        var fullText = ClaudeService.StripPointTags(reply.ToString());
+        Logger.Log($"[Claude] Reply ({info.Model}{(info.Escalated ? ", escalated" : "")}): \"{fullText}\"");
+        if (string.IsNullOrWhiteSpace(fullText))
         {
-            Logger.Log($"[Claude] POINT detected: label=\"{detectedPoint.Label}\" — starting CU coordinate refinement");
-            (double x, double y) target = (detectedPoint.X, detectedPoint.Y);
-
-            try
-            {
-                var primaryShot = screenshots[0]; // cursor's screen (sorted first)
-                var (cuW, cuH) = CoordinateHelper.DetectComputerUseResolution(
-                    primaryShot.Bounds.Width, primaryShot.Bounds.Height);
-
-                var resized = _screen.CaptureResized(primaryShot.Bounds, cuW, cuH);
-                if (resized != null)
-                {
-                    var (physX, physY) = await _claude.DetectElementAsync(
-                        resized.Base64, detectedPoint.Label,
-                        primaryShot.Bounds.Width, primaryShot.Bounds.Height,
-                        s.Token).ConfigureAwait(false);
-
-                    if (physX >= 0)
-                    {
-                        Logger.Log($"[CU] Precise POINT: ({physX},{physY})");
-                        target = (physX, physY);
-                    }
-                    else
-                    {
-                        Logger.Log("[CU] No tool_use coordinate in response — using rough coords");
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (s.Token.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"[CU] Computer Use detection failed: {ex.Message}");
-            }
-
-            if (!s.Token.IsCancellationRequested)
-                PointReceived?.Invoke(target.x, target.y, detectedPoint.Label);
+            if (info.Refused) Feedback(s, L.Refused);
+            return;
         }
-
-        var fullText = ClaudeService.StripPointTags(responseBuilder.ToString());
-        Logger.Log($"[Claude] Response text: \"{fullText}\"");
-        if (string.IsNullOrWhiteSpace(fullText)) return;
 
         try
         {
