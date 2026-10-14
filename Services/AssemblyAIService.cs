@@ -51,11 +51,16 @@ public sealed class AssemblyAIService : IAsyncDisposable
     /// <summary>Set when the session failed (connect error, abnormal close). Null on success.</summary>
     public string? Error { get; private set; }
 
-    public AssemblyAIService(string apiKey, string endpoint, string speechModel)
+    /// <param name="keyterms">Personal dictionary: boosted names/terms (API limit 100 terms of ≤50 chars).</param>
+    public AssemblyAIService(string apiKey, string endpoint, string speechModel, IReadOnlyList<string>? keyterms = null)
     {
         _apiKey = apiKey;
-        _uri = new Uri($"{endpoint}?sample_rate=16000&encoding=pcm_s16le" +
-                       $"&speech_model={Uri.EscapeDataString(speechModel)}");
+        var url = $"{endpoint}?sample_rate=16000&encoding=pcm_s16le" +
+                  $"&speech_model={Uri.EscapeDataString(speechModel)}";
+        var terms = keyterms?.Where(t => !string.IsNullOrWhiteSpace(t) && t.Length <= 50).Take(100).ToList();
+        if (terms is { Count: > 0 })
+            url += "&keyterms_prompt=" + Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(terms));
+        _uri = new Uri(url);
     }
 
     /// <summary>

@@ -1,0 +1,57 @@
+<Window x:Class="ClickyWindows.QuickPanel"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Clicky Panel"
+        Width="380"
+        SizeToContent="Height"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        FontFamily="Segoe UI"
+        FontSize="13">
+
+    <Border Margin="10" Padding="16,14" CornerRadius="10" Background="#FCFCFC"
+            BorderBrush="#DDD" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="16" ShadowDepth="2" Opacity="0.25"/>
+        </Border.Effect>
+
+        <StackPanel>
+            <DockPanel>
+                <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="⚙" FontSize="15" Padding="6,0"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand" Click="OnSettings"/>
+                <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#2563EB" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock Text="Clicky" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center"/>
+                <TextBlock x:Name="StatusText" Foreground="#666" Margin="10,0,0,0" VerticalAlignment="Center"/>
+            </DockPanel>
+            <TextBlock x:Name="ShortcutsText" FontSize="11" Foreground="#888" Margin="0,6,0,0" TextWrapping="Wrap"/>
+
+            <DockPanel Margin="0,14,0,4">
+                <Button x:Name="CopyAnswerButton" DockPanel.Dock="Right" Padding="10,2" Click="OnCopyAnswer"/>
+                <TextBlock x:Name="AnswerLabel" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </DockPanel>
+            <TextBlock x:Name="QuestionText" Foreground="#777" FontStyle="Italic" TextWrapping="Wrap"
+                       TextTrimming="CharacterEllipsis" MaxHeight="36"/>
+            <TextBox x:Name="AnswerText" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
+                     Background="Transparent" MaxHeight="150" VerticalScrollBarVisibility="Auto" Margin="0,4,0,0"/>
+
+            <TextBlock x:Name="DictationsLabel" FontWeight="SemiBold" Margin="0,14,0,4"/>
+            <ListBox x:Name="DictationList" MaxHeight="170" BorderThickness="0" Background="Transparent"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="OnDictationPicked">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,2">
+                            <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" MaxHeight="36" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding Meta}" FontSize="11" Foreground="#999"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <CheckBox x:Name="TutorBox" Margin="0,14,0,0" Click="OnTutorToggled"/>
+        </StackPanel>
+    </Border>
+</Window>

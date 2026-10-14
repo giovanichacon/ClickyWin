@@ -9,7 +9,7 @@ namespace ClickyWindows.Services;
 /// Spanish voice for Spanish replies and an English one otherwise. Used when ElevenLabs
 /// is not configured or fails (no key, quota used up, offline).
 /// </summary>
-public sealed class WindowsVoiceService(Func<string>? preferredVoice = null) : IDisposable
+public sealed class WindowsVoiceService(Func<string>? preferredVoice = null, Func<double>? speed = null) : IDisposable
 {
     private readonly object _lock = new();
     private SpeechSynthesizer? _synth;
@@ -25,6 +25,7 @@ public sealed class WindowsVoiceService(Func<string>? preferredVoice = null) : I
         {
             var synth = Synth();
             SelectVoice(synth, preferredVoice?.Invoke(), L.LooksSpanish(text) ? "es" : "en");
+            synth.Rate = RateFor(speed?.Invoke() ?? 1.0);
 
             void OnCompleted(object? s, SpeakCompletedEventArgs e)
             {
@@ -67,13 +68,19 @@ public sealed class WindowsVoiceService(Func<string>? preferredVoice = null) : I
         finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
 
         _synth.SetOutputToDefaultAudioDevice();
-        _synth.Rate = 1; // a little brisker than default
         Logger.Log("[TTS] Windows voices: " +
                    string.Join(", ", _synth.GetInstalledVoices().Where(v => v.Enabled).Select(v => v.VoiceInfo.Name)));
         return _synth;
     }
 
     /// <summary>Installed, enabled Windows voices as (name, language tag).</summary>
+    /// <summary>
+    /// SAPI rate runs -10..10, where +10 is about 3× faster. Speed 1.0 maps to +1 (a little
+    /// brisker than SAPI's default, which sounds slow next to ElevenLabs).
+    /// </summary>
+    private static int RateFor(double speed) =>
+        Math.Clamp((int)Math.Round(1 + 10 * Math.Log(Math.Clamp(speed, 0.5, 2.0)) / Math.Log(3)), -10, 10);
+
     public static List<(string name, string culture)> InstalledVoices()
     {
         using var synth = new SpeechSynthesizer();

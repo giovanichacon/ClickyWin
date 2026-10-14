@@ -1,91 +1,159 @@
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ClickyWindows.Helpers;
 using ClickyWindows.Settings;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace ClickyWindows.Services;
 
 /// <summary>
-/// Synthesizes speech via ElevenLabs TTS API and plays it back using NAudio.
-/// Mirrors the ElevenLabsTTSClient in macOS Clicky.
-/// Free plans can only use the account's premade/own voices through the API (library
-/// voices return 402 paid_plan_required).
+/// ElevenLabs text-to-speech, streamed: each sentence is requested as raw 24 kHz PCM from the
+/// /stream endpoint and played while it downloads, and the next sentence is fetched while the
+/// previous one is still playing. Speech starts after the first sentence instead of the whole reply.
+/// Free plans can only use the account's premade/own voices through the API (library voices
+/// return 402 paid_plan_required).
 /// </summary>
-public class ElevenLabsService : IDisposable
+public sealed class ElevenLabsService(AppSettings settings) : IDisposable
 {
     private static readonly HttpClient Http = new();
-    private readonly AppSettings _settings;
-    private IWavePlayer? _player;
-    private Mp3FileReader? _reader;
+    private static readonly WaveFormat Pcm = new(24000, 16, 1);
 
-    public bool IsPlaying => _player?.PlaybackState == PlaybackState.Playing;
+    private readonly AppSettings _settings = settings;
+    private Playback? _current;
 
-    public ElevenLabsService(AppSettings settings)
+    /// <summary>Starts an audio stream; append sentences in order, then <see cref="Playback.DrainAsync"/>.</summary>
+    public Playback BeginPlayback(Action? onPlaybackStarting) =>
+        BeginPlayback(_settings.ElevenLabsApiKey, _settings.EffectiveElevenLabsVoiceId, _settings.EffectiveVoiceSpeed, onPlaybackStarting);
+
+    private Playback BeginPlayback(string apiKey, string voiceId, double speed, Action? onPlaybackStarting)
     {
-        _settings = settings;
+        var playback = new Playback(this, apiKey, voiceId, speed, onPlaybackStarting);
+        Interlocked.Exchange(ref _current, playback)?.Stop();
+        return playback;
     }
 
-    /// <summary>
-    /// Synthesizes text to speech and plays it. Returns when playback completes.
-    /// <paramref name="onPlaybackStarting"/> runs right before audio starts — after the MP3
-    /// has been fetched and decoded — so the caller's spinner covers the whole HTTP fetch.
-    /// </summary>
-    public Task SpeakAsync(string text, Action? onPlaybackStarting, CancellationToken ct = default) =>
-        SpeakWithAsync(text, _settings.ElevenLabsApiKey, _settings.EffectiveElevenLabsVoiceId, onPlaybackStarting, ct);
-
-    /// <summary>Same as <see cref="SpeakAsync"/> with an explicit key and voice (Setup preview).</summary>
-    public async Task SpeakWithAsync(string text, string apiKey, string voiceId, Action? onPlaybackStarting,
-        CancellationToken ct = default)
+    /// <summary>Speaks one text with an explicit key, voice and speed (Setup preview).</summary>
+    public async Task SpeakWithAsync(string text, string apiKey, string voiceId, double speed,
+        Action? onPlaybackStarting, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(text)) return;
-
-        byte[] mp3 = await FetchAudioAsync(text, apiKey, voiceId, ct);
-        ct.ThrowIfCancellationRequested();
-        await PlayMp3Async(mp3, onPlaybackStarting, ct);
+        using var playback = BeginPlayback(apiKey, voiceId, speed, onPlaybackStarting);
+        await playback.AppendAsync(text, "", ct).ConfigureAwait(false);
+        await playback.DrainAsync(ct).ConfigureAwait(false);
     }
 
-    public void StopPlayback()
-    {
-        _player?.Stop();
-    }
+    public void StopPlayback() => _current?.Stop();
 
-    private async Task<byte[]> FetchAudioAsync(string text, string apiKey, string voiceId, CancellationToken ct)
-    {
-        var url = $"{_settings.Config.Endpoints.ElevenLabs.TrimEnd('/')}/v1/text-to-speech/" +
-                  Uri.EscapeDataString(voiceId);
+    public void Dispose() => Interlocked.Exchange(ref _current, null)?.Dispose();
 
-        var body = new
+    /// <summary>One continuous audio stream fed sentence by sentence.</summary>
+    public sealed class Playback : IDisposable
+    {
+        private readonly ElevenLabsService _owner;
+        private readonly string _apiKey, _voiceId;
+        private readonly double _speed;
+        private readonly Action? _onPlaybackStarting;
+        private readonly BufferedWaveProvider _buffer = new(Pcm)
         {
-            text,
-            model_id = _settings.Config.Speech.ElevenLabsModel,
-            voice_settings = new
-            {
-                stability = 0.5,
-                similarity_boost = 0.75,
-            },
+            BufferDuration = TimeSpan.FromMinutes(5),
+            DiscardOnBufferOverflow = false,
         };
+        private readonly WasapiOut _player = new(AudioClientShareMode.Shared, 100);
+        private bool _playing, _stopped;
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        internal Playback(ElevenLabsService owner, string apiKey, string voiceId, double speed, Action? onPlaybackStarting)
         {
-            Content = new StringContent(
-                JsonSerializer.Serialize(body),
-                Encoding.UTF8,
-                "application/json"),
-        };
-        request.Headers.Add("xi-api-key", apiKey.Trim());
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("audio/mpeg"));
-
-        using var response = await Http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            var err = await response.Content.ReadAsStringAsync(ct);
-            throw new HttpRequestException($"ElevenLabs {(int)response.StatusCode}: {ErrorMessage(err)}");
+            _owner = owner;
+            _apiKey = apiKey.Trim();
+            _voiceId = voiceId;
+            _speed = Math.Clamp(speed, 0.7, 1.2);
+            _onPlaybackStarting = onPlaybackStarting;
+            _player.Init(_buffer);
         }
 
-        return await response.Content.ReadAsByteArrayAsync(ct);
+        /// <summary>Has any audio started playing? (Failures before that fall back to the Windows voice.)</summary>
+        public bool Started => _playing;
+
+        /// <summary>Downloads one sentence into the stream; playback starts once ~150 ms is buffered.</summary>
+        public async Task AppendAsync(string text, string previousText, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(text) || _stopped) return;
+
+            var cfg = _owner._settings.Config;
+            var url = $"{cfg.Endpoints.ElevenLabs.TrimEnd('/')}/v1/text-to-speech/{Uri.EscapeDataString(_voiceId)}" +
+                      "/stream?output_format=pcm_24000";
+            var body = new
+            {
+                text,
+                model_id = cfg.Speech.ElevenLabsModel,
+                // Earlier sentences keep the intonation continuous across requests
+                previous_text = string.IsNullOrEmpty(previousText) ? null : previousText,
+                voice_settings = new { stability = 0.5, similarity_boost = 0.75, speed = _speed },
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Add("xi-api-key", _apiKey);
+
+            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                throw new HttpRequestException($"ElevenLabs {(int)response.StatusCode}: {ErrorMessage(err)}");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            var chunk = new byte[8192];
+            int carry = 0; // a 16-bit sample can be split across two reads
+            int read;
+            while ((read = await stream.ReadAsync(chunk.AsMemory(carry), ct).ConfigureAwait(false)) > 0)
+            {
+                int total = carry + read;
+                int even = total & ~1;
+                _buffer.AddSamples(chunk, 0, even);
+                carry = total - even;
+                if (carry == 1) chunk[0] = chunk[even];
+
+                if (!_playing && _buffer.BufferedDuration >= TimeSpan.FromMilliseconds(150)) StartPlaying();
+            }
+        }
+
+        /// <summary>Waits until everything appended has been heard.</summary>
+        public async Task DrainAsync(CancellationToken ct)
+        {
+            if (_stopped) return;
+            if (!_playing && _buffer.BufferedBytes > 0) StartPlaying();
+            using var reg = ct.Register(Stop);
+            while (!_stopped && _buffer.BufferedBytes > 0)
+                await Task.Delay(30, ct).ConfigureAwait(false);
+            if (_playing && !_stopped)
+                await Task.Delay(150, ct).ConfigureAwait(false); // the device's own buffer
+        }
+
+        private void StartPlaying()
+        {
+            _playing = true;
+            _onPlaybackStarting?.Invoke();
+            _player.Play();
+        }
+
+        public void Stop()
+        {
+            _stopped = true;
+            try { _player.Stop(); }
+            catch (Exception ex) { Logger.Log($"[TTS] Stop error: {ex.Message}"); }
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _player.Dispose();
+            Interlocked.CompareExchange(ref _owner._current, null, this);
+        }
     }
 
     /// <summary>Pulls "detail.message" out of an ElevenLabs error body when there is one.</summary>
@@ -99,42 +167,6 @@ public class ElevenLabsService : IDisposable
         }
         catch { /* not JSON */ }
         return body.Length > 200 ? body[..200] : body;
-    }
-
-    private async Task PlayMp3Async(byte[] mp3Bytes, Action? onPlaybackStarting, CancellationToken ct)
-    {
-        // Dispose previous player
-        _player?.Dispose();
-        _reader?.Dispose();
-
-        var ms = new MemoryStream(mp3Bytes);
-        _reader = new Mp3FileReader(ms);
-        var player = new WasapiOut();
-        _player = player;
-        player.Init(_reader);
-
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        player.PlaybackStopped += (_, e) =>
-        {
-            if (e.Exception != null) tcs.TrySetException(e.Exception);
-            else tcs.TrySetResult();
-        };
-
-        using var reg = ct.Register(() =>
-        {
-            player.Stop();
-            tcs.TrySetCanceled(ct);
-        });
-
-        onPlaybackStarting?.Invoke();
-        player.Play();
-        await tcs.Task;
-    }
-
-    public void Dispose()
-    {
-        _player?.Dispose();
-        _reader?.Dispose();
     }
 
     /// <summary>Checks a key against the account endpoint (no characters used).</summary>

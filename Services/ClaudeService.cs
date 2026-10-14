@@ -58,8 +58,8 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     private string _clientUrl = "";
 
     /// <summary>
-    /// Sends transcript + screenshots and yields reply text chunks as they arrive.
-    /// <paramref name="info"/> reports the model used, escalation and refusals.
+    /// Sends transcript + screenshots (with the conversation so far) and yields reply text
+    /// chunks as they arrive. <paramref name="info"/> reports the model used, escalation and refusals.
     /// </summary>
     public async IAsyncEnumerable<string> StreamReplyAsync(
         string transcript,
@@ -67,71 +67,14 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         ReplyInfo info,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var userContent = BuildUserContent(transcript, screenshots);
-        var primary = settings.EffectivePrimaryModel;
-        var escalation = settings.EffectiveEscalationModel;
+        var messages = HistoryMessages(history.Turns);
+        messages.Add(new BetaMessageParam { Role = Role.User, Content = BuildUserContent(transcript, screenshots) });
+
         var reply = new StringBuilder();
-
-        if (escalation == null)
+        await foreach (var chunk in StreamRoutedAsync(settings.Config.Prompts.SystemText, messages, info, ct).ConfigureAwait(false))
         {
-            await foreach (var chunk in StreamModelAsync(primary, false, userContent, info, ct).ConfigureAwait(false))
-            {
-                reply.Append(chunk);
-                yield return chunk;
-            }
-        }
-        else
-        {
-            // Hold back the start of the reply until it can't be the escalation tag
-            var head = new StringBuilder();
-            bool decided = false, escalate = false;
-
-            await foreach (var chunk in StreamModelAsync(primary, true, userContent, info, ct).ConfigureAwait(false))
-            {
-                if (decided)
-                {
-                    reply.Append(chunk);
-                    yield return chunk;
-                    continue;
-                }
-
-                head.Append(chunk);
-                var start = head.ToString().TrimStart();
-                if (start.Length < EscalateTag.Length && EscalateTag.StartsWith(start, StringComparison.OrdinalIgnoreCase))
-                    continue; // could still become [ESCALATE]
-
-                decided = true;
-                if (start.StartsWith(EscalateTag, StringComparison.OrdinalIgnoreCase))
-                {
-                    escalate = true;
-                    break; // abandons the primary stream (the HTTP response is closed)
-                }
-                reply.Append(head);
-                yield return head.ToString();
-            }
-
-            if (!decided)
-            {
-                var start = head.ToString().Trim();
-                if (start.StartsWith("[ESCALATE", StringComparison.OrdinalIgnoreCase))
-                    escalate = true;
-                else if (start.Length > 0)
-                {
-                    reply.Append(head);
-                    yield return head.ToString();
-                }
-            }
-
-            if (escalate)
-            {
-                info.Escalated = true;
-                Logger.Log($"[Claude] {primary} escalated the question to {escalation}");
-                await foreach (var chunk in StreamModelAsync(escalation, false, userContent, info, ct).ConfigureAwait(false))
-                {
-                    reply.Append(chunk);
-                    yield return chunk;
-                }
-            }
+            reply.Append(chunk);
+            yield return chunk;
         }
 
         if (reply.Length > 0)
@@ -141,23 +84,100 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         }
     }
 
+    /// <summary>
+    /// One-shot request with its own system prompt (dictation cleanup, Write, tutor checks),
+    /// routed like a spoken question: everyday model first, [ESCALATE] when allowed.
+    /// </summary>
+    public async Task<string> CompleteAsync(string system, List<BetaContentBlockParam> content, ReplyInfo info,
+        bool allowEscalation, CancellationToken ct, IReadOnlyList<ConversationTurn>? turns = null)
+    {
+        var messages = HistoryMessages(turns ?? []);
+        messages.Add(new BetaMessageParam { Role = Role.User, Content = content });
+
+        var reply = new StringBuilder();
+        var stream = allowEscalation
+            ? StreamRoutedAsync(system, messages, info, ct)
+            : StreamModelAsync(settings.EffectivePrimaryModel, system, messages, info, ct);
+        await foreach (var chunk in stream.ConfigureAwait(false))
+            reply.Append(chunk);
+        return reply.ToString();
+    }
+
+    private static List<BetaMessageParam> HistoryMessages(IEnumerable<ConversationTurn> turns) =>
+        turns.Select(t => new BetaMessageParam { Role = t.Role == "user" ? Role.User : Role.Assistant, Content = t.Content })
+             .ToList();
+
+    /// <summary>Everyday model first; on a leading [ESCALATE] the same request goes to the stronger model.</summary>
+    private async IAsyncEnumerable<string> StreamRoutedAsync(
+        string system,
+        List<BetaMessageParam> messages,
+        ReplyInfo info,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        var primary = settings.EffectivePrimaryModel;
+        var escalation = settings.EffectiveEscalationModel;
+
+        if (escalation == null)
+        {
+            await foreach (var chunk in StreamModelAsync(primary, system, messages, info, ct).ConfigureAwait(false))
+                yield return chunk;
+            yield break;
+        }
+
+        // Hold back the start of the reply until it can't be the escalation tag
+        var head = new StringBuilder();
+        bool decided = false, escalate = false;
+        var primarySystem = system + "\n\n" + settings.Config.Prompts.EscalationText;
+
+        await foreach (var chunk in StreamModelAsync(primary, primarySystem, messages, info, ct).ConfigureAwait(false))
+        {
+            if (decided)
+            {
+                yield return chunk;
+                continue;
+            }
+
+            head.Append(chunk);
+            var start = head.ToString().TrimStart();
+            if (start.Length < EscalateTag.Length && EscalateTag.StartsWith(start, StringComparison.OrdinalIgnoreCase))
+                continue; // could still become [ESCALATE]
+
+            decided = true;
+            if (start.StartsWith(EscalateTag, StringComparison.OrdinalIgnoreCase))
+            {
+                escalate = true;
+                break; // abandons the primary stream (the HTTP response is closed)
+            }
+            yield return head.ToString();
+        }
+
+        if (!decided)
+        {
+            var start = head.ToString().Trim();
+            if (start.StartsWith("[ESCALATE", StringComparison.OrdinalIgnoreCase))
+                escalate = true;
+            else if (start.Length > 0)
+                yield return head.ToString();
+        }
+
+        if (escalate)
+        {
+            info.Escalated = true;
+            Logger.Log($"[Claude] {primary} escalated the request to {escalation}");
+            await foreach (var chunk in StreamModelAsync(escalation, system, messages, info, ct).ConfigureAwait(false))
+                yield return chunk;
+        }
+    }
+
     private async IAsyncEnumerable<string> StreamModelAsync(
         string model,
-        bool allowEscalation,
-        List<BetaContentBlockParam> userContent,
+        string system,
+        List<BetaMessageParam> messages,
         ReplyInfo info,
         [EnumeratorCancellation] CancellationToken ct)
     {
         var cfg = settings.Config;
         bool isEscalation = model == settings.EffectiveEscalationModel;
-        var system = allowEscalation
-            ? cfg.Prompts.SystemText + "\n\n" + cfg.Prompts.EscalationText
-            : cfg.Prompts.SystemText;
-
-        var messages = new List<BetaMessageParam>();
-        foreach (var turn in history.Turns)
-            messages.Add(new BetaMessageParam { Role = turn.Role == "user" ? Role.User : Role.Assistant, Content = turn.Content });
-        messages.Add(new BetaMessageParam { Role = Role.User, Content = userContent });
 
         var parameters = new MessageCreateParams
         {
@@ -220,7 +240,7 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         }
     }
 
-    private static List<BetaContentBlockParam> BuildUserContent(string transcript, IReadOnlyList<ScreenshotResult> screenshots)
+    public static List<BetaContentBlockParam> BuildUserContent(string transcript, IReadOnlyList<ScreenshotResult> screenshots)
     {
         var content = new List<BetaContentBlockParam>();
         foreach (var shot in screenshots)

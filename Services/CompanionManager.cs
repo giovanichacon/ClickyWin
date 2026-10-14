@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using ClickyWindows.Helpers;
 using ClickyWindows.Models;
 using ClickyWindows.Settings;
@@ -8,7 +9,7 @@ namespace ClickyWindows.Services;
 /// Orchestrates the full voice interaction loop:
 /// hotkey press → audio capture → transcription → Claude → overlay + TTS
 ///
-/// Each press starts a <see cref="Session"/>. Pressing again while Clicky is thinking or
+/// Each press starts a <see cref="VoiceSession"/>. Pressing again while Clicky is thinking or
 /// speaking cancels the old session and starts listening right away. State changes coming
 /// from a cancelled session are ignored, so a late "Idle" can never clobber "Listening".
 ///
@@ -18,8 +19,6 @@ namespace ClickyWindows.Services;
 /// </summary>
 public sealed class CompanionManager : IAsyncDisposable
 {
-    private static readonly TimeSpan TranscriptTimeout = TimeSpan.FromSeconds(6);
-
     private readonly AppSettings _settings;
     private readonly AudioCaptureService _mic;
     private readonly ScreenCaptureService _screen;
@@ -28,7 +27,7 @@ public sealed class CompanionManager : IAsyncDisposable
     private readonly ConversationHistory _history;
 
     private readonly object _gate = new();
-    private Session? _current;
+    private VoiceSession? _current;
     private AppState _state = AppState.Idle;
 
     public event Action<AppState>? StateChanged;
@@ -38,19 +37,20 @@ public sealed class CompanionManager : IAsyncDisposable
     public event Action<string>? FeedbackReceived;
     /// <summary>Fires the instant a final transcript arrives — triggers the spinner pulse.</summary>
     public event Action? TranscriptConfirmed;
+    /// <summary>Question and spoken answer (for the tray panel and "copy answers").</summary>
+    public event Action<string, string>? AnswerReady;
 
-    public CompanionManager(AppSettings settings)
+    private CancellationTokenSource? _tutorCts;
+
+    public CompanionManager(AppSettings settings, AudioCaptureService mic)
     {
         _settings = settings;
         _history = new ConversationHistory(settings.Config.Models.ConversationTurns);
-        _mic = new AudioCaptureService { DeviceId = settings.MicDeviceId };
+        _mic = mic;
         _screen = new ScreenCaptureService(settings.Config.Screenshots);
         _claude = new ClaudeService(settings, _history);
         _tts = new SpeechService(settings);
     }
-
-    /// <summary>Picks up changes saved in the Setup window (keys and models are read per request).</summary>
-    public void ApplySettings() => _mic.DeviceId = _settings.MicDeviceId;
 
     public AppState State
     {
@@ -68,36 +68,51 @@ public sealed class CompanionManager : IAsyncDisposable
             return;
         }
 
-        Session? previous;
-        Session session;
+        VoiceSession? previous;
+        VoiceSession session;
         lock (_gate)
         {
             if (_state == AppState.Listening) return;
             previous = _current;
-            session = new Session();
+            session = new VoiceSession();
             _current = session;
             _state = AppState.Listening;
         }
 
         Logger.Log(previous == null ? "[Hotkey] PRESSED" : "[Hotkey] PRESSED — interrupting previous answer");
+        StopTutor();
         previous?.Cancel();
         _tts.StopPlayback();
         StateChanged?.Invoke(AppState.Listening);
 
-        // The transcription session exists before the mic starts, so every frame has a
-        // destination; frames queue up (pre-roll) until the WebSocket is open.
-        session.Asr = new AssemblyAIService(_settings.AssemblyAiApiKey,
-            _settings.Config.Endpoints.AssemblyAiStreaming, _settings.Config.Speech.AssemblyAiModel);
-        session.AsrConnected = session.Asr.ConnectAsync();
-        session.MicStarted = Task.Run(() => StartMicAsync(session));
+        session.Start(_settings, _mic, level => AudioLevelChanged?.Invoke(level));
+        _ = WatchMicAsync(session);
     }
 
-    /// <summary>Opens and briefly runs the mic so the first press starts fast (mic indicator blinks once).</summary>
-    public Task WarmUpMicAsync() => Task.Run(_mic.WarmUpAsync);
+    /// <summary>Esc, or the shortcut turned out to be part of a Windows shortcut: drop the recording silently.</summary>
+    public void OnPushToTalkCancelled()
+    {
+        VoiceSession? session;
+        lock (_gate)
+        {
+            if (_state != AppState.Listening || _current == null) return;
+            session = _current;
+        }
+        Logger.Log("[Hotkey] CANCELLED");
+        session.Cancel();
+        SetState(AppState.Idle, session);
+        _ = session.DisposeAsync().AsTask();
+    }
+
+    /// <summary>True while a question is being recorded (dictation must not start then).</summary>
+    public bool IsListening
+    {
+        get { lock (_gate) return _state == AppState.Listening; }
+    }
 
     public void OnPushToTalkReleased()
     {
-        Session session;
+        VoiceSession session;
         lock (_gate)
         {
             if (_state != AppState.Listening || _current == null)
@@ -114,41 +129,29 @@ public sealed class CompanionManager : IAsyncDisposable
         _ = Task.Run(() => RunPipelineAsync(session));
     }
 
-    private async Task<bool> StartMicAsync(Session session)
+    private async Task WatchMicAsync(VoiceSession session)
     {
-        var recording = await _mic.StartAsync(
-            session.Asr!.EnqueueAudio, level => AudioLevelChanged?.Invoke(level)).ConfigureAwait(false);
-
-        if (recording == null)
-        {
-            Feedback(session, L.NoMic);
-            SetState(AppState.Idle, session);
-            _ = session.DisposeAsync().AsTask();
-            return false;
-        }
-
-        session.Mic = recording;
-        Logger.Log($"[Audio] Recording {System.Diagnostics.Stopwatch.GetElapsedTime(session.PressedAt).TotalMilliseconds:F0} ms after press");
-        return true;
+        if (await session.MicStarted.ConfigureAwait(false)) return;
+        Feedback(session, L.NoMic);
+        SetState(AppState.Idle, session);
+        await session.DisposeAsync().ConfigureAwait(false);
     }
 
     // ── Pipeline (thread pool) ──────────────────────────────────────────────
 
-    private async Task RunPipelineAsync(Session s)
+    private async Task RunPipelineAsync(VoiceSession s)
     {
         try
         {
             if (!await s.MicStarted.ConfigureAwait(false)) return;
-            await s.Mic!.StopAsync().ConfigureAwait(false);
 
             // Grab the screen while the transcript is being finalized
             var screenshotsTask = Task.Run(CaptureScreens);
 
-            string transcript = await s.Asr!.FinishAsync(TranscriptTimeout, s.Token).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(transcript))
+            var (transcript, connectFailed) = await s.StopAndTranscribeAsync().ConfigureAwait(false);
+            if (transcript.Length == 0)
             {
-                await s.AsrConnected.ConfigureAwait(false);
-                Feedback(s, s.Asr.Error != null ? L.NoConnect : L.NotHeard);
+                Feedback(s, connectFailed ? L.NoConnect : L.NotHeard);
                 return;
             }
 
@@ -192,55 +195,55 @@ public sealed class CompanionManager : IAsyncDisposable
 
     // ── Claude + TTS ────────────────────────────────────────────────────────
 
-    private async Task ProcessResponseAsync(Session s, string transcript, List<ScreenshotResult> screenshots)
+    /// <summary>
+    /// Streams the reply and speaks it sentence by sentence while the rest is still arriving;
+    /// flies the cursor to a [POINT] as soon as its tag is complete.
+    /// </summary>
+    private async Task ProcessResponseAsync(VoiceSession s, string transcript, List<ScreenshotResult> screenshots)
     {
         var reply = new System.Text.StringBuilder();
         var info = new ReplyInfo();
         bool pointed = false;
+
+        var sentences = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
+        // Speaking starts when audio literally starts, so the spinner covers the TTS fetch
+        var speaking = _tts.SpeakSentencesAsync(sentences.Reader, () => SetState(AppState.Speaking, s), s.Token);
+        var splitter = new SentenceSplitter();
+        bool claudeFailed = false;
 
         try
         {
             await foreach (var chunk in _claude.StreamReplyAsync(transcript, screenshots, info, s.Token).ConfigureAwait(false))
             {
                 reply.Append(chunk);
+                foreach (var sentence in splitter.Add(chunk))
+                    sentences.Writer.TryWrite(sentence);
 
-                // Fly to the target as soon as the tag is complete, while the rest still streams
-                if (!pointed && screenshots.Count > 0 &&
-                    ClaudeService.ParsePoints(reply.ToString()) is [var point, ..])
-                {
+                if (!pointed && TryPoint(reply.ToString(), screenshots, s.Token))
                     pointed = true;
-                    var shot = screenshots.FirstOrDefault(x => x.Number == point.Screen) ?? screenshots[0];
-                    var (x, y) = shot.ToPhysical(point.X, point.Y);
-                    Logger.Log($"[Claude] POINT \"{point.Label}\" screen {shot.Number} ({point.X},{point.Y}) → physical ({x:F0},{y:F0})");
-                    if (!s.Token.IsCancellationRequested)
-                        PointReceived?.Invoke(x, y, point.Label);
-                }
             }
+            foreach (var sentence in splitter.Flush())
+                sentences.Writer.TryWrite(sentence);
         }
         catch (OperationCanceledException) when (s.Token.IsCancellationRequested)
         {
+            sentences.Writer.TryComplete();
             throw;
         }
         catch (Exception ex)
         {
             Logger.Error($"Claude API error: {ex.Message}");
-            Feedback(s, L.NoAnswer);
-            return;
+            claudeFailed = true;
         }
+        sentences.Writer.TryComplete();
 
         var fullText = ClaudeService.StripPointTags(reply.ToString());
         Logger.Log($"[Claude] Reply ({info.Model}{(info.Escalated ? ", escalated" : "")}): \"{fullText}\"");
-        if (string.IsNullOrWhiteSpace(fullText))
-        {
-            if (info.Refused) Feedback(s, L.Refused);
-            return;
-        }
 
         try
         {
-            // Speaking starts when audio literally starts, so the spinner covers the TTS fetch
-            await _tts.SpeakAsync(fullText, () => SetState(AppState.Speaking, s), s.Token).ConfigureAwait(false);
-            Logger.Log("[TTS] Playback complete");
+            await speaking.ConfigureAwait(false);
+            if (fullText.Length > 0) Logger.Log("[TTS] Playback complete");
         }
         catch (OperationCanceledException) when (s.Token.IsCancellationRequested)
         {
@@ -250,14 +253,142 @@ public sealed class CompanionManager : IAsyncDisposable
         {
             Logger.Error($"TTS failed: {ex.Message}");
             // Claude responded but we can't play it — show the start of the answer as text
-            Feedback(s, fullText.Length > 30 ? fullText[..30].TrimEnd() + "…" : fullText);
+            if (fullText.Length > 0)
+                Feedback(s, fullText.Length > 30 ? fullText[..30].TrimEnd() + "…" : fullText);
         }
+
+        if (claudeFailed && fullText.Length == 0) Feedback(s, L.NoAnswer);
+        if (fullText.Length == 0)
+        {
+            if (info.Refused) Feedback(s, L.Refused);
+            return;
+        }
+
+        AnswerReady?.Invoke(transcript, fullText);
+
+        // Tutor mode: a reply that pointed somewhere is a step; keep watching for the next one
+        if (pointed && _settings.TutorMode && !s.Token.IsCancellationRequested)
+            StartTutor(transcript);
+    }
+
+    private bool TryPoint(string replySoFar, List<ScreenshotResult> screenshots, CancellationToken ct)
+    {
+        if (screenshots.Count == 0 || ClaudeService.ParsePoints(replySoFar) is not [var point, ..]) return false;
+        var shot = screenshots.FirstOrDefault(x => x.Number == point.Screen) ?? screenshots[0];
+        var (x, y) = shot.ToPhysical(point.X, point.Y);
+        Logger.Log($"[Claude] POINT \"{point.Label}\" screen {shot.Number} ({point.X},{point.Y}) → physical ({x:F0},{y:F0})");
+        if (!ct.IsCancellationRequested)
+            PointReceived?.Invoke(x, y, point.Label);
+        return true;
+    }
+
+    // ── Tutor mode ──────────────────────────────────────────────────────────
+    // After a step, watch the screen (tiny thumbnails, no API calls) and, once it changes and
+    // settles, ask the everyday model for the next step. Ends on [DONE], after a few minutes or
+    // checks, or as soon as the user presses any Clicky shortcut.
+
+    private static readonly TimeSpan TutorDuration = TimeSpan.FromMinutes(3);
+    private const int TutorMaxChecks = 12;
+
+    private void StartTutor(string goal)
+    {
+        var cts = new CancellationTokenSource();
+        Interlocked.Exchange(ref _tutorCts, cts)?.Cancel();
+        FeedbackReceived?.Invoke(L.TutorWatching);
+        _ = Task.Run(() => RunTutorAsync(goal, cts.Token));
+    }
+
+    public void StopTutor() => Interlocked.Exchange(ref _tutorCts, null)?.Cancel();
+
+    private async Task RunTutorAsync(string goal, CancellationToken ct)
+    {
+        Logger.Log("[Tutor] Watching");
+        var until = DateTime.UtcNow + TutorDuration;
+        int checks = 0;
+        try
+        {
+            var last = ScreenCaptureService.Thumbnail();
+            while (DateTime.UtcNow < until && checks < TutorMaxChecks)
+            {
+                await Task.Delay(700, ct).ConfigureAwait(false);
+                var now = ScreenCaptureService.Thumbnail();
+                if (!ScreenCaptureService.Differs(last, now)) continue;
+
+                // Wait for the screen to settle (menus opening, pages loading)
+                for (int i = 0; i < 8; i++)
+                {
+                    await Task.Delay(500, ct).ConfigureAwait(false);
+                    var next = ScreenCaptureService.Thumbnail();
+                    bool settled = !ScreenCaptureService.Differs(now, next);
+                    now = next;
+                    if (settled) break;
+                }
+                last = now;
+                checks++;
+                lock (_gate)
+                    if (_current != null) return; // the user is asking something else
+
+                if (await TutorStepAsync(goal, ct).ConfigureAwait(false)) return;
+                until = DateTime.UtcNow + TutorDuration; // progress made: keep going
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Logger.Log($"[Tutor] Stopped: {ex.Message}");
+        }
+        finally
+        {
+            Logger.Log($"[Tutor] Done after {checks} check(s)");
+        }
+    }
+
+    /// <summary>One check. Returns true when the lesson is over.</summary>
+    private async Task<bool> TutorStepAsync(string goal, CancellationToken ct)
+    {
+        var shots = CaptureScreens();
+        if (shots.Count == 0) return true;
+
+        var system = _settings.Config.Prompts.SystemText + "\n\n" + _settings.Config.Prompts.TutorText +
+                     $"\nThe user's goal: {goal}";
+        var info = new ReplyInfo();
+        var reply = (await _claude.CompleteAsync(system, ClaudeService.BuildUserContent("(The screen changed.)", shots),
+            info, allowEscalation: false, ct, _history.Turns).ConfigureAwait(false)).Trim();
+
+        if (reply.Length == 0 || reply.StartsWith("[WAIT", StringComparison.OrdinalIgnoreCase)) return false;
+        bool done = reply.StartsWith("[DONE]", StringComparison.OrdinalIgnoreCase);
+        if (done) reply = reply["[DONE]".Length..];
+
+        TryPoint(reply, shots, ct);
+        var text = ClaudeService.StripPointTags(reply);
+        Logger.Log($"[Tutor] {(done ? "Done" : "Next step")}: \"{text}\"");
+        _history.AddUserMessage("(The screen changed.)");
+        _history.AddAssistantMessage(text);
+
+        if (text.Length > 0)
+        {
+            await _tts.SpeakAsync(text, () => SetTutorState(AppState.Speaking), ct).ConfigureAwait(false);
+            SetTutorState(AppState.Idle);
+            AnswerReady?.Invoke(goal, text);
+        }
+        return done;
+    }
+
+    /// <summary>State changes from the tutor never override a question in progress.</summary>
+    private void SetTutorState(AppState state)
+    {
+        lock (_gate)
+        {
+            if (_current != null || _state == state) return;
+            _state = state;
+        }
+        StateChanged?.Invoke(state);
     }
 
     // ── State helpers ───────────────────────────────────────────────────────
 
     /// <summary>Applies a state change only if <paramref name="owner"/> is still the active session.</summary>
-    private void SetState(AppState state, Session owner)
+    private void SetState(AppState state, VoiceSession owner)
     {
         lock (_gate)
         {
@@ -269,63 +400,24 @@ public sealed class CompanionManager : IAsyncDisposable
         StateChanged?.Invoke(state);
     }
 
-    private void Feedback(Session owner, string message)
+    private void Feedback(VoiceSession owner, string message)
     {
         if (!owner.Token.IsCancellationRequested)
             FeedbackReceived?.Invoke(message);
     }
 
-    public void StopSpeaking() => _tts.StopPlayback();
+    public void StopSpeaking()
+    {
+        StopTutor();
+        _tts.StopPlayback();
+    }
 
     public async ValueTask DisposeAsync()
     {
-        Session? current;
+        VoiceSession? current;
         lock (_gate) current = _current;
         if (current != null)
             await current.DisposeAsync().ConfigureAwait(false);
         _tts.Dispose();
-        _mic.Dispose();
-    }
-
-    /// <summary>One press-to-answer interaction. Owns the mic, the ASR socket and the cancellation.</summary>
-    private sealed class Session : IAsyncDisposable
-    {
-        private readonly CancellationTokenSource _cts = new();
-        private int _disposed;
-
-        public long PressedAt { get; } = System.Diagnostics.Stopwatch.GetTimestamp();
-
-        public CancellationToken Token => _cts.Token;
-        public AudioCaptureService.Recording? Mic { get; set; }
-        public AssemblyAIService? Asr { get; set; }
-        public Task<bool> MicStarted { get; set; } = Task.FromResult(false);
-        public Task AsrConnected { get; set; } = Task.CompletedTask;
-
-        public void Cancel() => _cts.Cancel();
-
-        public async ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
-            _cts.Cancel();
-            try
-            {
-                if (await MicStarted.ConfigureAwait(false) && Mic != null)
-                    await Mic.StopAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"[Session] Mic cleanup error: {ex.Message}");
-            }
-            try
-            {
-                if (Asr != null)
-                    await Asr.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"[Session] ASR cleanup error: {ex.Message}");
-            }
-            // _cts is not disposed: late callbacks may still check Token
-        }
     }
 }

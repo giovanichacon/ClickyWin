@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Clicky"
-        Width="560"
-        SizeToContent="Height"
+        Width="580"
+        Height="600"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI"
@@ -19,6 +19,7 @@
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="#666"/>
             <Setter Property="Margin" Value="0,3,0,0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
         <Style TargetType="Button">
             <Setter Property="MinWidth" Value="84"/>
@@ -30,83 +31,152 @@
         <Style TargetType="ComboBox">
             <Setter Property="Padding" Value="6,3"/>
         </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin" Value="0,10,0,0"/>
+        </Style>
+        <Style x:Key="Shortcut" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="IsReadOnlyCaretVisible" Value="False"/>
+            <Setter Property="Padding" Value="4,3"/>
+            <Setter Property="Background" Value="#F0F0F0"/>
+        </Style>
     </Window.Resources>
 
-    <StackPanel Margin="22,16,22,20">
-        <TextBlock x:Name="IntroText" Foreground="#555" TextWrapping="Wrap"/>
-
-        <!-- Claude -->
-        <TextBlock x:Name="ClaudeLabel" Style="{StaticResource Section}"/>
-        <DockPanel>
-            <Button x:Name="ClaudeTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestClaude"/>
-            <PasswordBox x:Name="ClaudeKey"/>
-        </DockPanel>
-        <TextBlock x:Name="ClaudeStatus" Style="{StaticResource Status}"/>
-
-        <!-- AssemblyAI -->
-        <TextBlock x:Name="AssemblyLabel" Style="{StaticResource Section}"/>
-        <DockPanel>
-            <Button x:Name="AssemblyTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestAssembly"/>
-            <PasswordBox x:Name="AssemblyKey"/>
-        </DockPanel>
-        <TextBlock x:Name="AssemblyStatus" Style="{StaticResource Status}"/>
-
-        <!-- Voice -->
-        <TextBlock x:Name="VoiceLabel" Style="{StaticResource Section}"/>
-        <ComboBox x:Name="VoiceBox" SelectionChanged="OnVoiceEngineChanged"/>
-        <TextBlock x:Name="ElevenLabel" Style="{StaticResource Section}"/>
-        <DockPanel>
-            <Button x:Name="ElevenTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestEleven"/>
-            <PasswordBox x:Name="ElevenKey"/>
-        </DockPanel>
-        <TextBlock x:Name="ElevenStatus" Style="{StaticResource Status}"/>
-        <TextBlock x:Name="VoiceNameLabel" Style="{StaticResource Section}"/>
-        <DockPanel>
-            <Button x:Name="PreviewButton" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnPreview"/>
-            <ComboBox x:Name="VoiceNameBox"/>
-        </DockPanel>
-        <TextBlock x:Name="VoiceNameStatus" Style="{StaticResource Status}" TextWrapping="Wrap"/>
-
-        <!-- Microphone -->
-        <TextBlock x:Name="MicLabel" Style="{StaticResource Section}"/>
-        <ComboBox x:Name="MicBox" SelectionChanged="OnMicChanged"/>
-        <ProgressBar x:Name="MicLevel" Height="8" Margin="0,6,0,0" Maximum="1" Foreground="#3380FF"/>
-        <TextBlock x:Name="MicHint" Style="{StaticResource Status}"/>
-
-        <!-- Shortcut + cursor -->
-        <TextBlock x:Name="HotkeyLabel" Style="{StaticResource Section}"/>
-        <DockPanel>
-            <Button x:Name="HotkeyReset" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnHotkeyReset"/>
-            <TextBox x:Name="HotkeyBox" IsReadOnly="True" IsReadOnlyCaretVisible="False" Padding="4,3"
-                     Cursor="Hand" PreviewKeyDown="OnHotkeyKeyDown"
-                     GotKeyboardFocus="OnHotkeyFocus" LostKeyboardFocus="OnHotkeyBlur"/>
-        </DockPanel>
-        <TextBlock x:Name="HotkeyStatus" Style="{StaticResource Status}" TextWrapping="Wrap"/>
-        <CheckBox x:Name="AlwaysCursorBox" Margin="0,10,0,0"/>
-
-        <!-- Models + language -->
-        <Grid Margin="0,4,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition/>
-                <ColumnDefinition Width="12"/>
-                <ColumnDefinition/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
-                <TextBlock x:Name="ModelLabel" Style="{StaticResource Section}"/>
-                <ComboBox x:Name="ModelBox"/>
-            </StackPanel>
-            <StackPanel Grid.Column="2">
-                <TextBlock x:Name="EscalationLabel" Style="{StaticResource Section}"/>
-                <ComboBox x:Name="EscalationBox"/>
-            </StackPanel>
-        </Grid>
-
-        <TextBlock x:Name="LanguageLabel" Style="{StaticResource Section}"/>
-        <ComboBox x:Name="LanguageBox" HorizontalAlignment="Left" MinWidth="200"/>
-
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+    <DockPanel Margin="14,12,14,14">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button x:Name="CancelButton" IsCancel="True" Margin="0,0,8,0" Click="OnCancel"/>
             <Button x:Name="SaveButton" IsDefault="True" Click="OnSave"/>
         </StackPanel>
-    </StackPanel>
+
+        <TabControl x:Name="Tabs" Padding="12,6,12,10">
+            <!-- Keys -->
+            <TabItem x:Name="KeysTab">
+                <StackPanel>
+                    <TextBlock x:Name="IntroText" Foreground="#555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+
+                    <TextBlock x:Name="ClaudeLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="ClaudeTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestClaude"/>
+                        <PasswordBox x:Name="ClaudeKey"/>
+                    </DockPanel>
+                    <TextBlock x:Name="ClaudeStatus" Style="{StaticResource Status}"/>
+
+                    <TextBlock x:Name="AssemblyLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="AssemblyTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestAssembly"/>
+                        <PasswordBox x:Name="AssemblyKey"/>
+                    </DockPanel>
+                    <TextBlock x:Name="AssemblyStatus" Style="{StaticResource Status}"/>
+
+                    <TextBlock x:Name="ElevenLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="ElevenTest" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestEleven"/>
+                        <PasswordBox x:Name="ElevenKey"/>
+                    </DockPanel>
+                    <TextBlock x:Name="ElevenStatus" Style="{StaticResource Status}"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- Voice -->
+            <TabItem x:Name="VoiceTab">
+                <StackPanel>
+                    <TextBlock x:Name="VoiceLabel" Style="{StaticResource Section}"/>
+                    <ComboBox x:Name="VoiceBox" SelectionChanged="OnVoiceEngineChanged"/>
+
+                    <TextBlock x:Name="VoiceNameLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="PreviewButton" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnPreview"/>
+                        <ComboBox x:Name="VoiceNameBox"/>
+                    </DockPanel>
+                    <TextBlock x:Name="VoiceNameStatus" Style="{StaticResource Status}"/>
+
+                    <TextBlock x:Name="VoiceSpeedLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <TextBlock x:Name="VoiceSpeedValue" DockPanel.Dock="Right" Width="44" Margin="8,0,0,0" TextAlignment="Right"/>
+                        <Slider x:Name="VoiceSpeedSlider" Minimum="0.7" Maximum="1.2" TickFrequency="0.05"
+                                IsSnapToTickEnabled="True" ValueChanged="OnVoiceSpeedChanged"/>
+                    </DockPanel>
+
+                    <TextBlock x:Name="MicLabel" Style="{StaticResource Section}"/>
+                    <ComboBox x:Name="MicBox" SelectionChanged="OnMicChanged"/>
+                    <ProgressBar x:Name="MicLevel" Height="8" Margin="0,6,0,0" Maximum="1" Foreground="#3380FF"/>
+                    <TextBlock x:Name="MicHint" Style="{StaticResource Status}"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- Shortcuts -->
+            <TabItem x:Name="ShortcutsTab">
+                <StackPanel>
+                    <TextBlock x:Name="AskLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="AskReset" DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="0" Click="OnShortcutReset"/>
+                        <Button x:Name="AskChange" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnShortcutChange"/>
+                        <TextBox x:Name="AskBox" Style="{StaticResource Shortcut}"/>
+                    </DockPanel>
+
+                    <TextBlock x:Name="DictateLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="DictateOff" DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="0" Click="OnShortcutOff"/>
+                        <Button x:Name="DictateReset" DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="0" Click="OnShortcutReset"/>
+                        <Button x:Name="DictateChange" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnShortcutChange"/>
+                        <TextBox x:Name="DictateBox" Style="{StaticResource Shortcut}"/>
+                    </DockPanel>
+
+                    <TextBlock x:Name="WriteLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="WriteOff" DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="0" Click="OnShortcutOff"/>
+                        <Button x:Name="WriteReset" DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="0" Click="OnShortcutReset"/>
+                        <Button x:Name="WriteChange" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnShortcutChange"/>
+                        <TextBox x:Name="WriteBox" Style="{StaticResource Shortcut}"/>
+                    </DockPanel>
+
+                    <TextBlock x:Name="ShortcutStatus" Style="{StaticResource Status}" Margin="0,10,0,0"/>
+                    <TextBlock x:Name="ShortcutHelp" Style="{StaticResource Status}" Margin="0,10,0,0"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- Dictation -->
+            <TabItem x:Name="DictationTab">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <CheckBox x:Name="CleanupBox"/>
+                        <CheckBox x:Name="LearnBox"/>
+                        <TextBlock x:Name="DictionaryLabel" Style="{StaticResource Section}" Margin="0,16,0,4"/>
+                    </StackPanel>
+                    <TextBlock x:Name="DictionaryHint" DockPanel.Dock="Bottom" Style="{StaticResource Status}"/>
+                    <TextBox x:Name="DictionaryBox" AcceptsReturn="True" TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto" Padding="4,3"/>
+                </DockPanel>
+            </TabItem>
+
+            <!-- General -->
+            <TabItem x:Name="GeneralTab">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock x:Name="ModelLabel" Style="{StaticResource Section}"/>
+                            <ComboBox x:Name="ModelBox"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock x:Name="EscalationLabel" Style="{StaticResource Section}"/>
+                            <ComboBox x:Name="EscalationBox"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock x:Name="LanguageLabel" Style="{StaticResource Section}"/>
+                    <ComboBox x:Name="LanguageBox" HorizontalAlignment="Left" MinWidth="200"/>
+
+                    <CheckBox x:Name="AlwaysCursorBox" Margin="0,16,0,0"/>
+                    <CheckBox x:Name="CopyAnswersBox"/>
+                    <CheckBox x:Name="TutorBox"/>
+                    <CheckBox x:Name="AutostartBox"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
 </Window>

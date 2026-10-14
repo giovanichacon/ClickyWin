@@ -45,8 +45,26 @@ public sealed class AppSettings
     public string Language { get; set; } = "Auto";
     /// <summary>Push-to-talk shortcut, e.g. "Ctrl+Shift+Space"; empty = appsettings.json default.</summary>
     public string Hotkey { get; set; } = "";
+    /// <summary>Hold to dictate into the focused text box; empty = default, "Off" disables.</summary>
+    public string DictateHotkey { get; set; } = "";
+    /// <summary>Hold to say what to write (uses the screen and the focused box); empty = default, "Off" disables.</summary>
+    public string WriteHotkey { get; set; } = "";
     /// <summary>false = the blue cursor shows only while listening, thinking, speaking or pointing.</summary>
     public bool AlwaysShowCursor { get; set; }
+
+    /// <summary>Dictation: punctuation, fillers and self-corrections fixed by the everyday model.</summary>
+    public bool DictationCleanup { get; set; } = true;
+    /// <summary>Dictation: words you fix right after dictating are added to <see cref="Dictionary"/>.</summary>
+    public bool LearnWords { get; set; } = true;
+    /// <summary>Names and terms to spell exactly (sent to speech-to-text and the cleanup model).</summary>
+    public List<string> Dictionary { get; set; } = [];
+
+    /// <summary>Copies each spoken answer to the clipboard.</summary>
+    public bool CopyAnswers { get; set; }
+    /// <summary>0.7–1.2 (ElevenLabs range); the Windows voice rate is mapped from it.</summary>
+    public double VoiceSpeed { get; set; } = 1.0;
+    /// <summary>After an answer, keep watching the screen and guide the next step.</summary>
+    public bool TutorMode { get; set; }
 
     // ── Effective values ────────────────────────────────────────────────────
     [JsonIgnore] public string EffectivePrimaryModel =>
@@ -64,6 +82,12 @@ public sealed class AppSettings
 
     [JsonIgnore] public string EffectiveHotkey =>
         string.IsNullOrWhiteSpace(Hotkey) ? Config.Hotkey : Hotkey;
+    [JsonIgnore] public string EffectiveDictateHotkey =>
+        string.IsNullOrWhiteSpace(DictateHotkey) ? Config.DictateHotkey : DictateHotkey;
+    [JsonIgnore] public string EffectiveWriteHotkey =>
+        string.IsNullOrWhiteSpace(WriteHotkey) ? Config.WriteHotkey : WriteHotkey;
+
+    [JsonIgnore] public double EffectiveVoiceSpeed => Math.Clamp(VoiceSpeed is > 0 ? VoiceSpeed : 1.0, 0.7, 1.2);
 
     [JsonIgnore] public string EffectiveElevenLabsVoiceId =>
         string.IsNullOrWhiteSpace(ElevenLabsVoiceId) ? Config.Speech.ElevenLabsVoiceId : ElevenLabsVoiceId;

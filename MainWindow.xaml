@@ -11,6 +11,6 @@
         WindowStartupLocation="Manual"
         Left="-9999" Top="-9999"
         ResizeMode="NoResize">
-    <!-- Invisible message pump window. WM_HOTKEY and other Win32 messages
-         are delivered here and routed to HotkeyService. -->
+    <!-- Invisible window that keeps the WPF app alive; shortcuts come from the
+         low-level keyboard hook (KeyboardHookService). -->
 </Window>

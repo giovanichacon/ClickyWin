@@ -49,6 +49,11 @@ public static partial class L
     public static string NoAnswer => T("No pude responder", "Sorry, I couldn't answer");
     public static string Refused => T("No puedo ayudar con eso", "I can't help with that");
     public static string NeedKeys => T("Falta configurar tus claves API", "Add your API keys in Settings");
+    public static string HandsFree => T("Manos libres: toca el atajo para terminar", "Hands-free: tap the shortcut to finish");
+    public static string CopiedPaste => T("Copiado: pulsa Ctrl+V para pegar", "Copied: press Ctrl+V to paste");
+    public static string LearnedWord(string word) => T($"Aprendí «{word}»", $"Learned \"{word}\"");
+    public static string TutorWatching => T("Te sigo guiando…", "I'll keep guiding you…");
+    public static string NoWriteText => T("No supe qué escribir", "I couldn't work out what to write");
     public static string[] Utterances => Es
         ? ["¡aquí!", "¡este!", "¡por aquí!", "¡clic aquí!", "¡aquí está!", "¡lo encontré!"]
         : ["right here!", "this one!", "over here!", "click this!", "here it is!", "found it!"];
@@ -56,6 +61,18 @@ public static partial class L
     // ── Tray ────────────────────────────────────────────────────────────────
     public static string Ready(string hotkey) => T($"¡Clicky listo! Mantén {hotkey} para hablar.", $"Clicky ready! Hold {hotkey} to talk.");
     public static string HoldToTalk(string hotkey) => T($"Mantén {hotkey} para hablar", $"Hold {hotkey} to talk");
+    public static string PanelReady => T("Listo", "Ready");
+    public static string PanelListening => T("Escuchando…", "Listening…");
+    public static string PanelThinking => T("Pensando…", "Thinking…");
+    public static string PanelSpeaking => T("Hablando…", "Speaking…");
+    public static string PanelLastAnswer => T("Última respuesta", "Last answer");
+    public static string PanelNoAnswer => T("Aún no hay respuestas. Mantén el atajo y pregunta algo.", "No answers yet. Hold the shortcut and ask something.");
+    public static string PanelDictations => T("Dictados recientes (clic para copiar)", "Recent dictations (click to copy)");
+    public static string PanelCopy => T("Copiar", "Copy");
+    public static string PanelCopied => T("Copiado ✓", "Copied ✓");
+    public static string PanelShortcuts(string ask, string dictate, string write) => T(
+        $"Preguntar: {ask}   ·   Dictar: {dictate}   ·   Escribir: {write}",
+        $"Ask: {ask}   ·   Dictate: {dictate}   ·   Write: {write}");
     public static string MenuSettings => T("Configuración…", "Settings…");
     public static string MenuLog => T("Ver registro", "View log");
     public static string MenuFolder => T("Abrir carpeta de datos", "Open data folder");
@@ -92,12 +109,32 @@ public static partial class L
     public static string MicLabel => T("Micrófono", "Microphone");
     public static string MicDefault => T("Predeterminado de Windows", "Windows default");
     public static string MicHint => T("Habla: la barra debe moverse.", "Speak: the bar should move.");
-    public static string HotkeyLabel => T("Atajo para hablar (mantener pulsado)", "Push-to-talk shortcut (hold)");
-    public static string HotkeyHint => T("Haz clic en el cuadro y pulsa la combinación nueva.", "Click the box and press the new combination.");
-    public static string HotkeyPress => T("Pulsa la combinación… (Esc para cancelar)", "Press the combination… (Esc to cancel)");
-    public static string HotkeyNeedsModifier => T("Usa Ctrl, Alt o Win junto con otra tecla.", "Use Ctrl, Alt or Win together with another key.");
-    public static string HotkeyTaken(string combo) => T($"{combo} ya lo usa Windows u otra app. Prueba otra.", $"{combo} is already used by Windows or another app. Try another.");
+    public static string TabKeys => T("Claves", "Keys");
+    public static string TabVoice => T("Voz", "Voice");
+    public static string TabShortcuts => T("Atajos", "Shortcuts");
+    public static string TabDictation => T("Dictado", "Dictation");
+    public static string TabGeneral => T("General", "General");
+    public static string HotkeyAsk => T("Preguntar a Clicky (mantener)", "Ask Clicky (hold)");
+    public static string HotkeyDictate => T("Dictar en el cuadro de texto (mantener)", "Dictate into the text box (hold)");
+    public static string HotkeyWrite => T("Escribir con la pantalla como contexto (mantener)", "Write using the screen as context (hold)");
+    public static string HotkeyHelp => T(
+        "Mantén el atajo y habla; suelta para terminar. Dictar y Escribir: doble toque = manos libres (toca otra vez para terminar). Esc cancela. Se aceptan solo modificadores, p. ej. Ctrl+Win.",
+        "Hold the shortcut and talk; release to finish. Dictate and Write: double-tap = hands-free (tap again to finish). Esc cancels. Modifier-only shortcuts like Ctrl+Win work.");
+    public static string HotkeyChange => T("Cambiar", "Change");
+    public static string HotkeyPress => T("Pulsa la combinación… (Esc cancela)", "Press the combination… (Esc cancels)");
+    public static string HotkeyInvalid => T("Usa Ctrl, Alt o Win con otra tecla, o dos modificadores (Ctrl+Win).", "Use Ctrl, Alt or Win with another key, or two modifiers (Ctrl+Win).");
+    public static string HotkeyDuplicate(string combo) => T($"{combo} ya está asignado a otra acción.", $"{combo} is already assigned to another action.");
     public static string HotkeyDefault => T("Restablecer", "Reset");
+    public static string HotkeyOff => T("Desactivar", "Turn off");
+    public static string Off => T("Desactivado", "Off");
+    public static string CleanupLabel => T("Limpiar el dictado con IA (puntuación, muletillas, autocorrecciones)", "Clean up dictation with AI (punctuation, fillers, self-corrections)");
+    public static string LearnLabel => T("Aprender palabras que corrijo justo después de dictar", "Learn words I correct right after dictating");
+    public static string DictionaryLabel => T("Diccionario personal (una palabra o nombre por línea)", "Personal dictionary (one word or name per line)");
+    public static string DictionaryHint => T("Se usan para reconocer y escribir bien nombres, marcas y términos.", "Used to recognize and spell names, brands and terms correctly.");
+    public static string VoiceSpeedLabel => T("Velocidad de la voz", "Voice speed");
+    public static string CopyAnswersLabel => T("Copiar cada respuesta al portapapeles", "Copy each answer to the clipboard");
+    public static string TutorLabel => T("Modo tutor: seguir mirando la pantalla y guiarte paso a paso", "Tutor mode: keep watching the screen and guide you step by step");
+    public static string AutostartLabel => T("Iniciar Clicky con Windows", "Start Clicky with Windows");
     public static string AlwaysShowCursor => T(
         "Mostrar siempre el cursor azul (si no, solo mientras usas Clicky)",
         "Always show the blue cursor (otherwise only while Clicky is active)");

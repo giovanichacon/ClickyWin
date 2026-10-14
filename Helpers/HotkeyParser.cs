@@ -2,17 +2,23 @@ using System.Windows.Input;
 
 namespace ClickyWindows.Helpers;
 
-/// <summary>Parses "Ctrl+Shift+Space"-style text into RegisterHotKey modifiers and a virtual key.</summary>
-internal static class HotkeyParser
+/// <summary>A shortcut: modifier flags (Win32 MOD_*) plus an optional key (0 = modifiers only, e.g. Ctrl+Win).</summary>
+public readonly record struct Chord(uint Modifiers, uint Key)
+{
+    public int ModifierCount => System.Numerics.BitOperations.PopCount(Modifiers);
+}
+
+/// <summary>Parses "Ctrl+Shift+Space" / "Ctrl+Win"-style text into a <see cref="Chord"/> and back.</summary>
+public static class HotkeyParser
 {
     public const string Default = "Ctrl+Shift+Space";
 
-    public static bool TryParse(string? text, out uint modifiers, out uint virtualKey)
+    public static bool TryParse(string? text, out Chord chord)
     {
-        modifiers = 0;
-        virtualKey = 0;
+        chord = default;
         if (string.IsNullOrWhiteSpace(text)) return false;
 
+        uint modifiers = 0, virtualKey = 0;
         foreach (var raw in text.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
             switch (raw.ToLowerInvariant())
@@ -27,31 +33,35 @@ internal static class HotkeyParser
                     break;
             }
         }
-        // RegisterHotKey needs a non-modifier key; a bare or Shift-only key would hijack normal typing
-        return virtualKey != 0 && modifiers != 0 && modifiers != Win32.MOD_SHIFT;
+        chord = new Chord(modifiers, virtualKey);
+        return IsUsable(chord);
     }
 
-    /// <summary>"Ctrl+Shift+Space"-style text for a key press; null while only modifiers are held.</summary>
-    public static string? Format(ModifierKeys modifiers, Key key)
-    {
-        if (key is Key.None or Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift
-            or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin or Key.System) return null;
+    /// <summary>
+    /// A key needs Ctrl, Alt or Win (a bare or Shift-only key would hijack normal typing);
+    /// a modifiers-only shortcut needs at least two of them (Ctrl alone is used everywhere).
+    /// </summary>
+    public static bool IsUsable(Chord chord) => chord.Key != 0
+        ? chord.Modifiers != 0 && chord.Modifiers != Win32.MOD_SHIFT
+        : chord.ModifierCount >= 2;
 
-        var parts = new List<string>(4);
-        if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
-        if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
-        if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
-        if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
-        parts.Add(key.ToString());
+    /// <summary>Parses <paramref name="text"/>, falling back to <paramref name="fallback"/> when it is invalid.</summary>
+    public static (Chord chord, string text) ParseOrDefault(string? text, string fallback = Default)
+    {
+        if (TryParse(text, out var chord)) return (chord, Format(chord));
+        Logger.Error($"[Hotkey] \"{text}\" is not a valid shortcut — using {fallback}");
+        TryParse(fallback, out chord);
+        return (chord, Format(chord));
+    }
+
+    public static string Format(Chord chord)
+    {
+        var parts = new List<string>(5);
+        if ((chord.Modifiers & Win32.MOD_CONTROL) != 0) parts.Add("Ctrl");
+        if ((chord.Modifiers & Win32.MOD_SHIFT) != 0) parts.Add("Shift");
+        if ((chord.Modifiers & Win32.MOD_ALT) != 0) parts.Add("Alt");
+        if ((chord.Modifiers & Win32.MOD_WIN) != 0) parts.Add("Win");
+        if (chord.Key != 0) parts.Add(KeyInterop.KeyFromVirtualKey((int)chord.Key).ToString());
         return string.Join("+", parts);
-    }
-
-    /// <summary>Parses <paramref name="text"/>, falling back to Ctrl+Shift+Space when it is invalid.</summary>
-    public static (uint modifiers, uint virtualKey, string text) ParseOrDefault(string? text)
-    {
-        if (TryParse(text, out var mods, out var vk)) return (mods, vk, text!.Trim());
-        Logger.Error($"[Hotkey] \"{text}\" is not a valid hotkey — using {Default}");
-        TryParse(Default, out mods, out vk);
-        return (mods, vk, Default);
     }
 }
