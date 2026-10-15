@@ -17,12 +17,12 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
     AgentController agent, AgentCard card)
 {
     private static readonly TimeSpan SilenceLimit = TimeSpan.FromMinutes(3);
-    private static readonly TimeSpan EchoGuard = TimeSpan.FromMilliseconds(700); // tail of Clicky's own voice
+    private static readonly TimeSpan EchoTail = TimeSpan.FromMilliseconds(500); // room echo after Clicky's voice stops
 
     private readonly object _gate = new();
     private VoiceSession? _voice;
     private CancellationTokenSource? _cts;
-    private DateTime _lastActivity, _lastSpoke;
+    private DateTime _lastActivity;
 
     public bool IsActive { get; private set; }
 
@@ -41,12 +41,12 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             if (withMic)
             {
                 _voice = new VoiceSession();
-                _voice.Start(settings, mic, onLevel: null, onTurn: text => Task.Run(() => Hear(text)));
+                // Clicky's own voice must never reach speech-to-text (speakers, no headphones): mute the mic while it talks
+                _voice.Start(settings, mic, onLevel: null, onTurn: text => Task.Run(() => Hear(text)), muted: ClickyTalking);
             }
         }
         Logger.Log("[Session] Started");
         agent.InSession = true;
-        companion.StateChanged += OnCompanionState;
         card.SetIdleBanner(L.SessionTitle, L.SessionHint);
         _ = companion.SayAsync(L.SessionStarted);
         _ = WatchAsync(_cts.Token);
@@ -64,12 +64,13 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             _cts?.Cancel();
         }
         Logger.Log($"[Session] Ended ({reason})");
-        companion.StateChanged -= OnCompanionState;
         agent.InSession = false;
         card.SetIdleBanner(null, null);
         if (voice != null) _ = voice.DisposeAsync().AsTask();
         _ = companion.SayAsync(L.SessionEnded);
     }
+
+    private static bool ClickyTalking() => SpeechService.IsTalking || DateTime.UtcNow - SpeechService.LastTalkEnded < EchoTail;
 
     /// <summary>One finished sentence from the user (from the mic, or a test).</summary>
     public void Hear(string text)
@@ -82,11 +83,6 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         if (card.TryAnswer(text))
         {
             Logger.Log($"[Session] Answer: \"{text}\"");
-            return;
-        }
-        if (companion.State == AppState.Speaking && !agent.IsRunning || now - _lastSpoke < EchoGuard)
-        {
-            Logger.Log($"[Session] Ignored while speaking: \"{text}\"");
             return;
         }
         if (agent.IsRunning)
@@ -114,12 +110,6 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         Logger.Log($"[Session] Heard: \"{text}\"");
         L.NoteSpoken(text);
         companion.AskText(text);
-    }
-
-    private void OnCompanionState(AppState state)
-    {
-        if (state == AppState.Speaking || state == AppState.Idle)
-            lock (_gate) _lastSpoke = DateTime.UtcNow; // the echo guard starts when the voice stops
     }
 
     private async Task WatchAsync(CancellationToken ct)
@@ -160,17 +150,27 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
     private static string Normalize(string s) =>
         new string(s.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) || c is '\'' or ' ' ? c : ' ').ToArray()).Trim();
 
-    /// <summary>A short command made of stop words ("Stop.", "Para, para").</summary>
-    private static bool IsStop(string text)
+    /// <summary>The last sentence of a turn: "…and that's it. Stop." → "Stop." (a command often follows other words).</summary>
+    private static string LastSentence(string text) =>
+        text.Split(['.', '!', '?', '¡', '¿'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault() ?? text;
+
+    /// <summary>A short command made of stop words ("Stop.", "Para, para"), alone or as the last sentence.</summary>
+    private static bool IsStop(string text) => IsStopWords(text) || IsStopWords(LastSentence(text));
+
+    private static bool IsStopWords(string text)
     {
         var words = Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return words.Length is > 0 and <= 4 && words.Any(w => StopWords.Contains(w)) &&
                words.All(w => StopWords.Contains(w) || w is "please" or "por" or "favor" or "clicky" or "it" or "now" or "ya");
     }
 
+    /// <summary>"End session" alone, or in the last sentence or last few words of a longer turn.</summary>
     private static bool IsEnd(string text)
     {
-        var t = Normalize(text);
-        return t.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 8 && EndPhrases.Any(t.Contains);
+        var words = Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tail = string.Join(' ', words.TakeLast(6));
+        var last = Normalize(LastSentence(text));
+        return EndPhrases.Any(p => tail.Contains(p) || (last.Split(' ').Length <= 8 && last.Contains(p)));
     }
 }

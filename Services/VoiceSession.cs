@@ -26,7 +26,9 @@ public sealed class VoiceSession : IAsyncDisposable
     public Task AsrConnected { get; private set; } = Task.CompletedTask;
 
     /// <param name="onTurn">Hands-free session: each finished turn as it ends.</param>
-    public void Start(AppSettings settings, AudioCaptureService mic, Action<float>? onLevel, Action<string>? onTurn = null)
+    /// <param name="muted">Hands-free session: while true, silence is sent instead of the mic (Clicky is talking).</param>
+    public void Start(AppSettings settings, AudioCaptureService mic, Action<float>? onLevel, Action<string>? onTurn = null,
+        Func<bool>? muted = null)
     {
         Asr = new AssemblyAIService(settings.AssemblyAiApiKey, settings.Config.Endpoints.AssemblyAiStreaming,
             settings.Config.Speech.AssemblyAiModel, settings.Dictionary);
@@ -34,7 +36,10 @@ public sealed class VoiceSession : IAsyncDisposable
         AsrConnected = Asr.ConnectAsync();
         MicStarted = Task.Run(async () =>
         {
-            var recording = await mic.StartAsync(Asr.EnqueueAudio, onLevel).ConfigureAwait(false);
+            Action<byte[]> send = muted == null
+                ? Asr.EnqueueAudio
+                : frame => Asr.EnqueueAudio(muted() ? new byte[frame.Length] : frame);
+            var recording = await mic.StartAsync(send, onLevel).ConfigureAwait(false);
             if (recording == null) return false;
             Mic = recording;
             Logger.Log($"[Audio] Recording {System.Diagnostics.Stopwatch.GetElapsedTime(PressedAt).TotalMilliseconds:F0} ms after press");

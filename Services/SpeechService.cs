@@ -16,6 +16,15 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
     private readonly WindowsVoiceService _windows = new(() => settings.WindowsVoice, () => settings.EffectiveVoiceSpeed);
     private int _elevenLabsErrorShown;
 
+    private static int _talking;
+    private static long _lastTalkEndedTicks;
+
+    /// <summary>True while any Clicky voice is playing (the hands-free session mutes the mic then).</summary>
+    public static bool IsTalking => Volatile.Read(ref _talking) > 0;
+
+    /// <summary>When Clicky's voice last stopped (UTC).</summary>
+    public static DateTime LastTalkEnded => new(Interlocked.Read(ref _lastTalkEndedTicks), DateTimeKind.Utc);
+
     public Task SpeakAsync(string text, Action? onPlaybackStarting, CancellationToken ct)
     {
         var single = Channel.CreateUnbounded<string>();
@@ -32,9 +41,25 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
         {
             if (started) return;
             started = true;
+            Interlocked.Increment(ref _talking);
             onPlaybackStarting?.Invoke();
         }
+        try
+        {
+            await SpeakCoreAsync(sentences, OnStart, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (started)
+            {
+                Interlocked.Exchange(ref _lastTalkEndedTicks, DateTime.UtcNow.Ticks);
+                Interlocked.Decrement(ref _talking);
+            }
+        }
+    }
 
+    private async Task SpeakCoreAsync(ChannelReader<string> sentences, Action OnStart, CancellationToken ct)
+    {
         bool useElevenLabs = settings.UseElevenLabs && !string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey);
         using var playback = useElevenLabs ? _elevenLabs.BeginPlayback(OnStart) : null;
         var spoken = new StringBuilder();
