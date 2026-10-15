@@ -140,6 +140,8 @@ public partial class SetupWindow : Window
             ("0.25", "$0.25"), ("0.50", "$0.50"), ("1.00", "$1.00"), ("2.00", "$2.00"));
         AgentAlwaysBox.Content = L.AgentAlwaysAllowLabel;
         AgentAlwaysBox.IsChecked = settings.AgentAlwaysAllow;
+        AgentQuietBox.Content = L.AgentQuietLabel;
+        AgentQuietBox.IsChecked = settings.AgentQuiet;
 
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _meterTimer.Tick += (_, _) =>
@@ -430,6 +432,7 @@ public partial class SetupWindow : Window
         _settings.AgentModel = Selected(AgentModelBox);
         _settings.AgentCostCap = double.TryParse(Selected(AgentCostBox), NumberStyles.Float, CultureInfo.InvariantCulture, out var cap) ? cap : 0;
         _settings.AgentAlwaysAllow = AgentAlwaysBox.IsChecked == true;
+        _settings.AgentQuiet = AgentQuietBox.IsChecked == true;
 
         try
         {

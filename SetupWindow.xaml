@@ -219,6 +219,7 @@
                         </StackPanel>
                     </Grid>
                     <CheckBox x:Name="AgentAlwaysBox"/>
+                    <CheckBox x:Name="AgentQuietBox"/>
                 </StackPanel>
             </TabItem>
         </TabControl>

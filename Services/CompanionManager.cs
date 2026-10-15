@@ -233,6 +233,7 @@ public sealed class CompanionManager : IAsyncDisposable
                     doFired = true;
                     Logger.Log($"[Claude] DO \"{task}\"");
                     DoRequested?.Invoke(task, transcript);
+                    if (_settings.AgentQuiet) sentences.Writer.TryComplete(); // act, don't narrate
                 }
             }
             foreach (var sentence in splitter.Flush())
@@ -280,6 +281,15 @@ public sealed class CompanionManager : IAsyncDisposable
         AnswerReady?.Invoke(transcript, fullText);
 
         if (doFired) return;
+
+        // The model said it would act ("I'll open…") but forgot the [DO] tag: act anyway, the Allow card still asks
+        if (ClaudeService.PromisesAction(reply.ToString()) && !s.Token.IsCancellationRequested)
+        {
+            var task = $"The user said: \"{transcript}\". Clicky replied: \"{fullText}\". Do what Clicky said it would do.";
+            Logger.Log("[Claude] Promised to act without [DO]; starting the task anyway");
+            DoRequested?.Invoke(task, transcript);
+            return;
+        }
 
         // Tutor mode: a reply that pointed somewhere is a step; keep watching for the next one
         if (pointed && _settings.TutorMode && !s.Token.IsCancellationRequested)
@@ -463,6 +473,9 @@ public sealed class CompanionManager : IAsyncDisposable
             }
         });
     }
+
+    /// <summary>Adds a task's outcome to the conversation, so the next question knows what Clicky did.</summary>
+    public void NoteTaskResult(string text) => _history.AppendToLastAssistant(text);
 
     /// <summary>Shows the cursor while Clicky works (Speaking) and hides it after (Idle); never overrides a question.</summary>
     public void SetAgentState(AppState state) => SetTutorState(state);

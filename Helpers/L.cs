@@ -74,6 +74,7 @@ public static partial class L
         _ => T("Haciendo clic…", "Clicking…"),
     };
     public static string AgentAlwaysAllowLabel => T("Permitir siempre que Clicky haga tareas (sin preguntar antes de empezar)", "Always let Clicky do tasks (don't ask before starting)");
+    public static string AgentQuietLabel => T("Hablar menos al hacer tareas (solo \"Listo\", respuestas y problemas)", "Talk less while doing tasks (just \"Done\", answers and problems)");
     public static string AgentModelLabel => T("Modelo para hacer tareas", "Model for doing tasks");
     public static string AgentCostLabel => T("Costo máximo por tarea (USD)", "Max cost per task (USD)");
 

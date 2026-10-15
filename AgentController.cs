@@ -63,7 +63,11 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
             var result = await WorkAsync(task, cts).ConfigureAwait(false);
             card.Close(result.Summary);
             Finished?.Invoke(request, result.Summary);
-            await companion.SayAsync(result.Summary).ConfigureAwait(false);
+            companion.NoteTaskResult($"(Task {result.Outcome}: {result.Summary})"); // so follow-ups know what happened
+
+            // Quiet: a plain success is just "Done"; answers, problems and stops are spoken in full
+            bool full = !settings.AgentQuiet || result.Report || result.Outcome != AgentOutcome.Done;
+            await companion.SayAsync(full ? result.Summary : L.AgentDone).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -81,10 +85,10 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
     {
         var agent = new ComputerAgent(settings);
         agent.Progress += step => card.ShowWorking(task, step);
-        agent.AskUser = async (question, ct) =>
+        agent.AskUser = async (question, options, ct) =>
         {
             _watcher.Armed = false; // the user needs their hands to answer
-            try { return await card.ConfirmAsync(question, ct).ConfigureAwait(false); }
+            try { return await card.AskUserAsync(question, options, ct).ConfigureAwait(false); }
             finally
             {
                 card.ShowWorking(task, "");

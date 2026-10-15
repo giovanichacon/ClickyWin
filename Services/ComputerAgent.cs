@@ -13,7 +13,8 @@ namespace ClickyWindows.Services;
 
 public enum AgentOutcome { Done, Stopped, Failed, LimitReached }
 
-public sealed record AgentResult(AgentOutcome Outcome, string Summary, double Cost, int Actions);
+/// <param name="Report">True when the task was to find something out: the summary is the answer.</param>
+public sealed record AgentResult(AgentOutcome Outcome, string Summary, double Cost, int Actions, bool Report = false);
 
 /// <summary>
 /// Computer use: Claude operates the primary monitor with the computer toolset
@@ -27,6 +28,9 @@ public sealed class ComputerAgent(AppSettings settings)
 {
     private const string ToolsetName = "computer";
     private const string AskUserTool = "ask_user";
+    private const string RememberTool = "remember";
+    private const string ReportTag = "[REPORT]";
+    private const int MaxNotes = 40;
     private const string HaltText = "Not executed: an earlier computer action in this turn failed.";
     private const string FallbackBeta = "server-side-fallback-2026-07-01";
     private static readonly HashSet<string> FallbackModels = ["claude-opus-5-5", "claude-sonnet-5-5"];
@@ -45,8 +49,11 @@ public sealed class ComputerAgent(AppSettings settings)
     /// <summary>Short text for the "working" banner: what Clicky is doing now.</summary>
     public event Action<string>? Progress;
 
-    /// <summary>Asks the user a yes/no question (irreversible step, or a secret they must type). True = yes.</summary>
-    public Func<string, CancellationToken, Task<bool>>? AskUser { get; set; }
+    /// <summary>
+    /// Asks the user a question: yes/no when <c>options</c> is null (returns "yes" or null), else one of
+    /// the options (returns the chosen one, or null when they dismiss it).
+    /// </summary>
+    public Func<string, string[]?, CancellationToken, Task<string?>>? AskUser { get; set; }
 
     /// <summary>Fires with the physical point Clicky is about to click (the overlay can show it).</summary>
     public event Action<int, int>? Acting;
@@ -92,7 +99,7 @@ public sealed class ComputerAgent(AppSettings settings)
                 {
                     Model = model,
                     MaxTokens = cfg.MaxTokens,
-                    System = string.Join("\n", settings.Config.Prompts.Agent) + $"\nReply in this language: {L.CurrentLanguageName}.",
+                    System = SystemPrompt(),
                     Messages = messages,
                     Tools = Tools(),
                     OutputConfig = new BetaOutputConfig { Effort = cfg.Effort },
@@ -135,7 +142,11 @@ public sealed class ComputerAgent(AppSettings settings)
                 if (response.StopReason == BetaStopReason.Refusal)
                     return Finish(AgentOutcome.Failed, L.AgentRefused, cost, actions);
                 if (calls.Count == 0)
-                    return Finish(AgentOutcome.Done, note.Length > 0 ? note : L.AgentDone, cost, actions);
+                {
+                    bool report = note.StartsWith(ReportTag, StringComparison.OrdinalIgnoreCase);
+                    if (report) note = note[ReportTag.Length..].Trim();
+                    return Finish(AgentOutcome.Done, note.Length > 0 ? note : L.AgentDone, cost, actions) with { Report = report };
+                }
 
                 if (note.Length > 0) Progress?.Invoke(note);
 
@@ -149,7 +160,7 @@ public sealed class ComputerAgent(AppSettings settings)
                         continue;
                     }
                     ct.ThrowIfCancellationRequested();
-                    if (call.Name != AskUserTool && ++actions > cfg.MaxActions)
+                    if (call.Name is not (AskUserTool or RememberTool) && ++actions > cfg.MaxActions)
                         return Finish(AgentOutcome.LimitReached, L.AgentLimit, cost, actions - 1);
 
                     BetaToolResultBlockParam result;
@@ -194,16 +205,32 @@ public sealed class ComputerAgent(AppSettings settings)
         return new AgentResult(outcome, summary, cost, actions);
     }
 
+    private string SystemPrompt()
+    {
+        var prompt = new StringBuilder(string.Join("\n", settings.Config.Prompts.Agent));
+        prompt.Append($"\nReply in this language: {L.CurrentLanguageName}.");
+        List<string> notes;
+        lock (settings.AgentNotes) notes = [.. settings.AgentNotes];
+        if (notes.Count > 0)
+        {
+            prompt.Append("\n\nWhat you remember about this user's computer and preferences:");
+            foreach (var n in notes) prompt.Append("\n- ").Append(n);
+        }
+        return prompt.ToString();
+    }
+
     private static List<BetaToolUnion> Tools() =>
     [
         new BetaComputerToolset20260801(),
         new BetaTool
         {
             Name = AskUserTool,
-            Description = "Ask the user a yes/no question and wait for the answer. Required before anything " +
+            Description = "Ask the user and wait for the answer. Yes/no (no options): required before anything " +
                           "irreversible or outward-facing (send, post, publish, delete, buy, pay, submit a form, " +
                           "install, change account or security settings), and when the user must type a password, " +
-                          "payment details or a code themselves. The user answers by clicking Yes or No.",
+                          "payment details or a code themselves. With options (2 or 3 short labels): when you must " +
+                          "choose between the user's own things, such as Chrome profiles or email accounts, and " +
+                          "nothing you remember settles it.",
             InputSchema = new()
             {
                 Properties = new Dictionary<string, JsonElement>
@@ -213,8 +240,29 @@ public sealed class ComputerAgent(AppSettings settings)
                         type = "string",
                         description = "One short question in the user's language, saying exactly what will happen.",
                     }),
+                    ["options"] = JsonSerializer.SerializeToElement(new
+                    {
+                        type = "array",
+                        items = new { type = "string" },
+                        description = "Optional: 2 or 3 short choices (button labels). Omit for a yes/no question.",
+                    }),
                 },
                 Required = ["question"],
+            },
+        },
+        new BetaTool
+        {
+            Name = RememberTool,
+            Description = "Save a lasting fact about the user's setup or preferences for future tasks, such as " +
+                          "which Chrome profile to use or where they keep their music. One short sentence. " +
+                          "Use it after the user answers a choice, or when the task says they corrected you.",
+            InputSchema = new()
+            {
+                Properties = new Dictionary<string, JsonElement>
+                {
+                    ["fact"] = JsonSerializer.SerializeToElement(new { type = "string", description = "The fact, one sentence." }),
+                },
+                Required = ["fact"],
             },
         },
     ];
@@ -229,10 +277,36 @@ public sealed class ComputerAgent(AppSettings settings)
         if (call.Name == AskUserTool)
         {
             string question = Str(input, "question") ?? "";
-            bool yes = AskUser != null && await AskUser(question, ct).ConfigureAwait(false);
-            Logger.Log($"[Agent] Asked \"{question}\" → {(yes ? "yes" : "no")}");
-            return Result(call, yes ? "The user said yes. Go ahead."
-                                    : "The user said no. Do not do it. Stop and say briefly what you did not do.");
+            string[]? options = input.TryGetValue("options", out var o) && o.ValueKind == JsonValueKind.Array
+                ? o.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!)
+                   .Where(v => v.Length > 0).Take(3).ToArray()
+                : null;
+            if (options is { Length: < 2 }) options = null;
+            string? answer = AskUser == null ? null : await AskUser(question, options, ct).ConfigureAwait(false);
+            Logger.Log($"[Agent] Asked \"{question}\" → {answer ?? "no"}");
+            if (options != null)
+                return Result(call, answer != null ? $"The user chose: {answer}"
+                                                    : "The user didn't choose. Stop and say briefly what you did not do.");
+            return Result(call, answer != null ? "The user said yes. Go ahead."
+                                               : "The user said no. Do not do it. Stop and say briefly what you did not do.");
+        }
+
+        if (call.Name == RememberTool)
+        {
+            var fact = (Str(input, "fact") ?? "").Trim();
+            if (fact.Length > 0)
+            {
+                lock (settings.AgentNotes)
+                {
+                    settings.AgentNotes.RemoveAll(n => n.Equals(fact, StringComparison.OrdinalIgnoreCase));
+                    settings.AgentNotes.Add(fact);
+                    if (settings.AgentNotes.Count > MaxNotes) settings.AgentNotes.RemoveRange(0, settings.AgentNotes.Count - MaxNotes);
+                }
+                try { settings.Save(); }
+                catch (Exception ex) { Logger.Log($"[Agent] Could not save a note: {ex.Message}"); }
+                Logger.Log($"[Agent] Remembered: \"{fact}\"");
+            }
+            return Result(call, "Saved.");
         }
 
         Progress?.Invoke(L.AgentStep(call.Name));

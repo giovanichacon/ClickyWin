@@ -52,6 +52,13 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     [GeneratedRegex(@"\s*\[(?:POINT|DO):[^\]]*\]", RegexOptions.IgnoreCase)]
     private static partial Regex AnyPointTag();
 
+    [GeneratedRegex(@"\s*\[POINT:[^\]]*\]", RegexOptions.IgnoreCase)]
+    private static partial Regex OnlyPointTag();
+
+    // "I'll open…", "Voy a poner…": a promise to act (caught when the model forgets the [DO] tag)
+    [GeneratedRegex(@"\b(?:I'll|I will|I'm going to|let me|voy a|lo voy a|ahora)\s+(?:[\w'’]+\s+){0,3}?(?:open|close|reopen|click|play|pause|type|search|turn|switch|set|launch|start|delete|empty|move|mute|unmute|scroll|fill|abrir|abro|cerrar|cierro|poner|pongo|reproducir|buscar|busco|escribir|escribo|activar|desactivar|subir|bajar|borrar|vaciar)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ActionPromise();
+
     [GeneratedRegex(@"\[DO:\s*([^\]]+)\]", RegexOptions.IgnoreCase)]
     private static partial Regex DoTagRegex();
 
@@ -83,7 +90,7 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         if (reply.Length > 0)
         {
             history.AddUserMessage(transcript);
-            history.AddAssistantMessage(StripPointTags(reply.ToString()));
+            history.AddAssistantMessage(OnlyPointTag().Replace(reply.ToString(), "").Trim()); // keeps [DO: …] as an example
         }
     }
 
@@ -312,6 +319,13 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
 
     /// <summary>Removes [POINT:...] and [DO:...] tags before speaking or storing text.</summary>
     public static string StripPointTags(string text) => AnyPointTag().Replace(text, "").Trim();
+
+    /// <summary>True when a reply without [DO] still promises to act now ("I'll open…") instead of asking.</summary>
+    public static bool PromisesAction(string reply)
+    {
+        var text = StripPointTags(reply);
+        return !text.TrimEnd().EndsWith('?') && ActionPromise().IsMatch(text);
+    }
 
     /// <summary>The task in a [DO: task] tag (the user asked Clicky to act on the computer), or null.</summary>
     public static string? ParseDoTask(string text) =>

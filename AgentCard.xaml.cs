@@ -43,9 +43,19 @@ public partial class AgentCard : Window
         return choice switch { 0 => AgentApproval.AllowOnce, 1 => AgentApproval.AlwaysAllow, _ => AgentApproval.NotNow };
     }
 
-    /// <summary>Clicky's question before an irreversible step. True = Yes.</summary>
-    public async Task<bool> ConfirmAsync(string question, CancellationToken ct) =>
-        await AskAsync(L.AgentAskTitle, question, "", L.AgentYes, L.AgentNo, null, ct).ConfigureAwait(false) == 0;
+    /// <summary>
+    /// Clicky's question: Yes/No before an irreversible step (returns "yes" or null), or a choice
+    /// between 2–3 options such as Chrome profiles (returns the chosen option, or null).
+    /// </summary>
+    public async Task<string?> AskUserAsync(string question, string[]? options, CancellationToken ct)
+    {
+        if (options == null)
+            return await AskAsync(L.AgentAskTitle, question, "", L.AgentYes, L.AgentNo, null, ct).ConfigureAwait(false) == 0
+                ? "yes" : null;
+        int choice = await AskAsync(L.AgentAskTitle, question, "", options[0], options[1],
+            options.Length > 2 ? options[2] : null, ct).ConfigureAwait(false);
+        return choice >= 0 && choice < options.Length ? options[choice] : null;
+    }
 
     /// <summary>Counts down before the first action. False when the user cancelled (Esc or the button).</summary>
     public async Task<bool> CountdownAsync(string task, int seconds, CancellationToken ct)
