@@ -78,6 +78,18 @@ public sealed class KeyboardHookService : IDisposable
 
     public bool IsInstalled => _hook != IntPtr.Zero;
 
+    /// <summary>Drops a locked hands-free gesture without events (the session ended by voice or silence).</summary>
+    public void ReleaseHandsFree(ShortcutAction action)
+    {
+        lock (_gate)
+        {
+            if (_phase != Phase.Locked || _active?.Action != action) return;
+            _active = null;
+            _phase = Phase.Idle;
+            _gestureId++;
+        }
+    }
+
     public void Start()
     {
         var ready = new ManualResetEventSlim();

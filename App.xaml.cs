@@ -23,6 +23,7 @@ public partial class App
     private KeyboardHookService? _keys;
     private OverlayWindow? _overlay;
     private AgentController? _agent;
+    private TaskSession? _session;
     private MainWindow? _mainWindow;
     private AppSettings _settings = new();
     private SetupWindow? _setupWindow;
@@ -88,9 +89,18 @@ public partial class App
         _companion.AnswerReady += OnAnswerReady;
 
         // Computer use: "do this for me" → Allow card → countdown → Clicky clicks and types
-        _agent = new AgentController(_settings, _companion, new AgentCard());
-        _companion.DoRequested += (task, request) => Dispatcher.InvokeAsync(() => _ = _agent.RunAsync(task, request));
+        var agentCard = new AgentCard();
+        _agent = new AgentController(_settings, _companion, agentCard);
+        _session = new TaskSession(_settings, _mic, _companion, _agent, agentCard);
+        _agentCardAsking = () => agentCard.IsAsking;
+        _companion.DoRequested += (task, request) => Dispatcher.InvokeAsync(() =>
+            _ = _agent.RunAsync(task, request, preApproved: _session.IsActive));
         _agent.Finished += OnAnswerReady;
+        _session.EndedByItself += () =>
+        {
+            _keys?.ReleaseHandsFree(ShortcutAction.Ask); // the double-tap gesture is still "locked" in the hook
+            if (_gestureOwner == ShortcutAction.Ask) _gestureOwner = null;
+        };
         _dictation.Inserted += _ => Dispatcher.InvokeAsync(() => _panel.SetDictations(_dictation.Recent));
 
         _keys = new KeyboardHookService();
@@ -99,7 +109,15 @@ public partial class App
         _keys.Cancelled += OnShortcutCancelled;
         _keys.HandsFreeLocked += action =>
         {
-            if (_gestureOwner == action && action != ShortcutAction.Ask) _dictation.NotifyHandsFree();
+            if (_gestureOwner != action) return;
+            if (action != ShortcutAction.Ask)
+            {
+                _dictation.NotifyHandsFree();
+                return;
+            }
+            // Double-tap Ask: hands-free task session instead of a question
+            _companion.OnPushToTalkCancelled();
+            _session?.Start();
         };
         ApplyShortcuts();
         _keys.Start();
@@ -107,7 +125,9 @@ public partial class App
         SetupTrayIcon();
 
         Logger.Log($"Clicky ready. Ask: {_askText} | Dictate: {_dictateText} | Write: {_writeText} | Prompt: {_promptText}");
-        int doArg = Array.IndexOf(e.Args, "--do"), askArg = Array.IndexOf(e.Args, "--ask");
+        int doArg = Array.IndexOf(e.Args, "--do"), askArg = Array.IndexOf(e.Args, "--ask"), sayArg = Array.IndexOf(e.Args, "--session-say");
+        if (sayArg >= 0 && sayArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
+            _ = SessionTestAsync(e.Args[sayArg + 1].Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
         if (askArg >= 0 && askArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
             _companion.AskText(e.Args[askArg + 1]); // testing: a spoken question without the mic
         if (doArg >= 0 && doArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
@@ -125,7 +145,7 @@ public partial class App
     private void ApplyShortcuts()
     {
         var bindings = new List<KeyboardHookService.Binding>();
-        _askText = Bind(ShortcutAction.Ask, _settings.EffectiveHotkey, _settings.Config.Hotkey, false, bindings);
+        _askText = Bind(ShortcutAction.Ask, _settings.EffectiveHotkey, _settings.Config.Hotkey, true, bindings); // double-tap = task session
         _dictateText = Bind(ShortcutAction.Dictate, _settings.EffectiveDictateHotkey, _settings.Config.DictateHotkey, true, bindings);
         _writeText = Bind(ShortcutAction.Write, _settings.EffectiveWriteHotkey, _settings.Config.WriteHotkey, true, bindings);
         _promptText = Bind(ShortcutAction.Prompt, _settings.EffectivePromptHotkey, _settings.Config.PromptHotkey, true, bindings);
@@ -169,6 +189,11 @@ public partial class App
     {
         if (_gestureOwner != action) return;
         _gestureOwner = null;
+        if (action == ShortcutAction.Ask && _session?.IsActive == true)
+        {
+            _session.End("shortcut"); // tapped again
+            return;
+        }
         if (action == ShortcutAction.Ask) _companion?.OnPushToTalkReleased();
         else _dictation?.Finish();
     }
@@ -177,9 +202,46 @@ public partial class App
     {
         if (_gestureOwner != action) return;
         _gestureOwner = null;
+        if (action == ShortcutAction.Ask && _session?.IsActive == true)
+        {
+            _session.End("Esc");
+            return;
+        }
         if (action == ShortcutAction.Ask) _companion?.OnPushToTalkCancelled();
         else _dictation?.Cancel();
     }
+
+    /// <summary>
+    /// Testing: a task session without the mic; each "|"-separated line is "heard" once Clicky is
+    /// free (or is waiting for an answer); a line starting with "!" is said 9 s later even mid-task.
+    /// Then the session ends.
+    /// </summary>
+    private async Task SessionTestAsync(string[] lines)
+    {
+        _session!.Start(withMic: false);
+        foreach (var raw in lines)
+        {
+            var line = raw.TrimStart('!');
+            if (raw.StartsWith('!')) // said mid-task ("!stop"), without waiting for Clicky to be free
+            {
+                await Task.Delay(9000);
+                Logger.Log($"[Session] (test) says: \"{line}\"");
+                _session.Hear(line);
+                continue;
+            }
+            await Task.Delay(2000);
+            while (!((_agent!.IsRunning == false && _companion!.State == AppState.Idle) || _agentCardAsking()))
+                await Task.Delay(300);
+            await Task.Delay(500);
+            Logger.Log($"[Session] (test) says: \"{line}\"");
+            _session.Hear(line);
+        }
+        await Task.Delay(2000);
+        while (_agent!.IsRunning || _companion!.State != AppState.Idle) await Task.Delay(300);
+        _session.End("test done");
+    }
+
+    private Func<bool> _agentCardAsking = () => false;
 
     private void OnAnswerReady(string question, string answer)
     {
@@ -312,6 +374,7 @@ public partial class App
     {
         try
         {
+            _session?.End("quit");
             _agent?.Stop();
             _trayIcon?.Dispose();
             _keys?.Dispose();

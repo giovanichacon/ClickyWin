@@ -445,15 +445,20 @@ public sealed class CompanionManager : IAsyncDisposable
 
     // ── Computer use ────────────────────────────────────────────────────────
 
-    /// <summary>Runs a typed question through the spoken-question pipeline (testing: --ask "text").</summary>
+    /// <summary>Runs a typed or session-heard question through the spoken-question pipeline (no hotkey, no mic).</summary>
     public void AskText(string transcript)
     {
         VoiceSession s = new();
+        VoiceSession? previous;
         lock (_gate)
         {
+            previous = _current;
             _current = s;
             _state = AppState.Processing;
         }
+        previous?.Cancel();
+        StopTutor();
+        _tts.StopPlayback();
         StateChanged?.Invoke(AppState.Processing);
         _ = Task.Run(async () =>
         {

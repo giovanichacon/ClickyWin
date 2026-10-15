@@ -21,6 +21,9 @@ public partial class AgentCard : Window
     private TaskCompletionSource<int>? _choice; // 0 = first button, 1 = second, 2 = third, -1 = dismissed
     private IntPtr _hwnd, _previousForeground;
     private int _mode; // bumped by every ShowMode, so a delayed hide can tell it was superseded
+    private string? _idleTitle, _idleHint; // hands-free session banner, shown whenever nothing else is
+    private volatile string?[] _askLabels = [];
+    private volatile bool _askYesNo;
 
     public AgentCard()
     {
@@ -82,22 +85,82 @@ public partial class AgentCard : Window
 
     public void Close(string? finalMessage = null) => Dispatcher.InvokeAsync(async () =>
     {
-        if (finalMessage == null)
+        if (finalMessage != null)
         {
-            Hide();
-            return;
+            ShowMode(finalMessage, "", "", null, null, null, interactive: false);
+            int mode = _mode;
+            await Task.Delay(2500);
+            if (mode != _mode) return;
         }
-        ShowMode(finalMessage, "", "", null, null, null, interactive: false);
-        int mode = _mode;
-        await Task.Delay(2500);
-        if (mode == _mode) Hide();
+        if (_idleTitle != null) ShowMode(_idleTitle, "", _idleHint ?? "", null, null, null, interactive: false);
+        else Hide();
     });
+
+    /// <summary>True while a question (Yes/No or a choice) waits for an answer.</summary>
+    public bool IsAsking => _choice is { Task.IsCompleted: false };
+
+    /// <summary>The hands-free session banner (null hides it); shown whenever no question or task is.</summary>
+    public void SetIdleBanner(string? title, string? hint) => Dispatcher.InvokeAsync(() =>
+    {
+        _idleTitle = title;
+        _idleHint = hint;
+        if (title != null) ShowMode(title, "", hint ?? "", null, null, null, interactive: false);
+        else Hide();
+    });
+
+    /// <summary>
+    /// Answers the open question by voice: yes/no words, an option's name, or "first/second/third".
+    /// False when nothing is being asked or the words don't match a button.
+    /// </summary>
+    public bool TryAnswer(string spoken)
+    {
+        var choice = _choice;
+        if (choice == null || choice.Task.IsCompleted) return false;
+        string text = Normalize(spoken);
+        int index = -2;
+        if (_askYesNo)
+        {
+            if (YesWords.Any(w => StartsWithWord(text, w))) index = 0;
+            else if (NoWords.Any(w => StartsWithWord(text, w))) index = 1;
+        }
+        else
+        {
+            var labels = _askLabels;
+            for (int i = 0; i < labels.Length && index < 0; i++)
+                if (labels[i] is { } label && Normalize(label) is { Length: > 2 } l && (text.Contains(l) || l.Contains(text)))
+                    index = i;
+            if (index < 0)
+                for (int i = 0; i < Ordinals.Length && index < 0; i++)
+                    if (Ordinals[i].Any(w => StartsWithWord(text, w) || text.Contains(" " + w + " "))) index = i;
+            if (index < 0 && NoWords.Any(w => StartsWithWord(text, w))) index = -1;
+        }
+        if (index == -2) return false;
+        return choice.TrySetResult(index);
+    }
+
+    private static readonly string[] YesWords = ["yes", "yeah", "yep", "sure", "ok", "okay", "go ahead", "do it", "si", "sí", "dale", "claro", "hazlo", "adelante", "vale"];
+    private static readonly string[] NoWords = ["no", "nope", "nah", "don't", "dont", "cancel", "cancela", "mejor no"];
+    private static readonly string[][] Ordinals =
+    [
+        ["first", "the first", "one", "primero", "primera", "el primero", "la primera", "uno"],
+        ["second", "the second", "two", "segundo", "segunda", "el segundo", "la segunda", "dos"],
+        ["third", "the third", "three", "tercero", "tercera", "el tercero", "la tercera", "tres"],
+    ];
+
+    private static string Normalize(string s) =>
+        new string(s.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) || c == '\'' ? c : ' ').ToArray())
+            .Replace("  ", " ").Trim();
+
+    private static bool StartsWithWord(string text, string word) =>
+        text == word || text.StartsWith(word + " ", StringComparison.Ordinal);
 
     // ── Modes ───────────────────────────────────────────────────────────────
 
     private async Task<int> AskAsync(string title, string body, string hint, string first, string second, string? third,
         CancellationToken ct)
     {
+        _askYesNo = first == L.AgentYes;
+        _askLabels = [first, second, third];
         var choice = Begin(ct);
         await Dispatcher.InvokeAsync(() => ShowMode(title, body, hint, first, second, third, interactive: true));
         var winner = await Task.WhenAny(choice, Task.Delay(TimeSpan.FromMinutes(1), CancellationToken.None)).ConfigureAwait(false);

@@ -48,6 +48,9 @@ public sealed class AssemblyAIService : IAsyncDisposable
     private int _audioFrames;
     private int _disposed;
 
+    /// <summary>Each finished turn's text, as it ends (hands-free task session). Fires on the receive loop: don't block.</summary>
+    public event Action<string>? TurnEnded;
+
     /// <summary>Set when the session failed (connect error, abnormal close). Null on success.</summary>
     public string? Error { get; private set; }
 
@@ -227,7 +230,10 @@ public sealed class AssemblyAIService : IAsyncDisposable
                 lock (_turnsLock)
                     _turns[order] = text; // later messages for a turn supersede earlier ones
                 if (endOfTurn)
+                {
                     Logger.Log($"[ASR] Turn {order} ended: \"{text}\"");
+                    if (text.Trim().Length > 0) TurnEnded?.Invoke(text.Trim());
+                }
                 break;
 
             case "Termination":

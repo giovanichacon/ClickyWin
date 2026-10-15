@@ -25,10 +25,12 @@ public sealed class VoiceSession : IAsyncDisposable
     public Task<bool> MicStarted { get; private set; } = Task.FromResult(false);
     public Task AsrConnected { get; private set; } = Task.CompletedTask;
 
-    public void Start(AppSettings settings, AudioCaptureService mic, Action<float>? onLevel)
+    /// <param name="onTurn">Hands-free session: each finished turn as it ends.</param>
+    public void Start(AppSettings settings, AudioCaptureService mic, Action<float>? onLevel, Action<string>? onTurn = null)
     {
         Asr = new AssemblyAIService(settings.AssemblyAiApiKey, settings.Config.Endpoints.AssemblyAiStreaming,
             settings.Config.Speech.AssemblyAiModel, settings.Dictionary);
+        if (onTurn != null) Asr.TurnEnded += onTurn;
         AsrConnected = Asr.ConnectAsync();
         MicStarted = Task.Run(async () =>
         {

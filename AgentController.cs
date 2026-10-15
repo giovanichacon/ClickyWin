@@ -24,7 +24,11 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
 
     public void Stop() => _cts?.Cancel();
 
-    public async Task RunAsync(string task, string request)
+    /// <summary>Hands-free session: Clicky also says its questions out loud (the user answers by voice).</summary>
+    public bool InSession { get; set; }
+
+    /// <param name="preApproved">Hands-free session: starting the session was the approval (no card, no countdown).</param>
+    public async Task RunAsync(string task, string request, bool preApproved = false)
     {
         if (Interlocked.Exchange(ref _running, 1) == 1)
         {
@@ -36,7 +40,7 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
         _cts = cts;
         try
         {
-            if (!settings.AgentAlwaysAllow)
+            if (!settings.AgentAlwaysAllow && !preApproved)
             {
                 var choice = await card.AskToStartAsync(task, cts.Token).ConfigureAwait(false);
                 Logger.Log($"[Agent] Approval: {choice}");
@@ -53,7 +57,8 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
                 }
             }
 
-            if (!await card.CountdownAsync(task, settings.Config.Agent.CountdownSeconds, cts.Token).ConfigureAwait(false))
+            if (!preApproved &&
+                !await card.CountdownAsync(task, settings.Config.Agent.CountdownSeconds, cts.Token).ConfigureAwait(false))
             {
                 Logger.Log("[Agent] Cancelled during the countdown");
                 card.Close(L.AgentNotNow);
@@ -88,10 +93,12 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
         agent.AskUser = async (question, options, ct) =>
         {
             _watcher.Armed = false; // the user needs their hands to answer
+            if (InSession) _ = companion.SayAsync(question); // they may not be looking: ask out loud too
             try { return await card.AskUserAsync(question, options, ct).ConfigureAwait(false); }
             finally
             {
                 card.ShowWorking(task, "");
+                companion.SetAgentState(AppState.Speaking); // a spoken question ends in Idle: show the cursor again
                 _watcher.Armed = true;
             }
         };

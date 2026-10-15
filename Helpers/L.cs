@@ -74,6 +74,10 @@ public static partial class L
         _ => T("Haciendo clic…", "Clicking…"),
     };
     public static string AgentAlwaysAllowLabel => T("Permitir siempre que Clicky haga tareas (sin preguntar antes de empezar)", "Always let Clicky do tasks (don't ask before starting)");
+    public static string SessionTitle => T("Clicky te escucha: di qué hacer", "Clicky is listening: say what to do");
+    public static string SessionHint => T("Di \"para\" para detener una tarea · \"terminar sesión\" o Esc para salir", "Say \"stop\" to stop a task · \"end session\" or Esc to finish");
+    public static string SessionStarted => T("Te escucho.", "I'm listening.");
+    public static string SessionEnded => T("Sesión terminada.", "Session ended.");
     public static string AgentQuietLabel => T("Hablar menos al hacer tareas (solo \"Listo\", respuestas y problemas)", "Talk less while doing tasks (just \"Done\", answers and problems)");
     public static string AgentModelLabel => T("Modelo para hacer tareas", "Model for doing tasks");
     public static string AgentCostLabel => T("Costo máximo por tarea (USD)", "Max cost per task (USD)");
