@@ -49,7 +49,7 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     [GeneratedRegex(@"\[POINT:(\d+),(\d+):([^\]:]*)(?::screen(\d+))?\]", RegexOptions.IgnoreCase)]
     private static partial Regex PointTagRegex();
 
-    [GeneratedRegex(@"\s*\[(?:POINT|DO):[^\]]*\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\s*\[(?:(?:POINT|DO):[^\]]*|IGNORE)\]", RegexOptions.IgnoreCase)]
     private static partial Regex AnyPointTag();
 
     [GeneratedRegex(@"\s*\[POINT:[^\]]*\]", RegexOptions.IgnoreCase)]
@@ -75,19 +75,21 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         string transcript,
         IReadOnlyList<ScreenshotResult> screenshots,
         ReplyInfo info,
-        [EnumeratorCancellation] CancellationToken ct = default)
+        [EnumeratorCancellation] CancellationToken ct = default,
+        string? extraSystem = null)
     {
         var messages = HistoryMessages(history.Turns);
         messages.Add(new BetaMessageParam { Role = Role.User, Content = BuildUserContent(transcript, screenshots) });
 
+        var system = settings.Config.Prompts.SystemText + (extraSystem != null ? "\n\n" + extraSystem : "");
         var reply = new StringBuilder();
-        await foreach (var chunk in StreamRoutedAsync(settings.Config.Prompts.SystemText, messages, info, ct).ConfigureAwait(false))
+        await foreach (var chunk in StreamRoutedAsync(system, messages, info, ct).ConfigureAwait(false))
         {
             reply.Append(chunk);
             yield return chunk;
         }
 
-        if (reply.Length > 0)
+        if (reply.Length > 0 && !IsIgnore(reply.ToString())) // overheard words don't belong in the conversation
         {
             history.AddUserMessage(transcript);
             history.AddAssistantMessage(OnlyPointTag().Replace(reply.ToString(), "").Trim()); // keeps [DO: …] as an example
@@ -319,6 +321,9 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
 
     /// <summary>Removes [POINT:...] and [DO:...] tags before speaking or storing text.</summary>
     public static string StripPointTags(string text) => AnyPointTag().Replace(text, "").Trim();
+
+    /// <summary>Hands-free session: the model decided the words weren't meant for Clicky (lyrics, TV, other people).</summary>
+    public static bool IsIgnore(string reply) => reply.TrimStart().StartsWith("[IGNORE]", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>True when a reply without [DO] still promises to act now ("I'll open…") instead of asking.</summary>
     public static bool PromisesAction(string reply)

@@ -113,8 +113,34 @@ internal static class InputDriver
 
     // ── Keyboard ────────────────────────────────────────────────────────────
 
-    /// <summary>Types literal text: Unicode keystrokes, with Enter and Tab as real keys.</summary>
+    /// <summary>
+    /// Types literal text. Lines are pasted (synthetic keystroke bursts came out garbled in Windows 11
+    /// Notepad); a few characters are typed as keys; "\n" and "\t" are real Enter and Tab presses.
+    /// </summary>
     public static async Task<bool> TypeAsync(string text, CancellationToken ct)
+    {
+        var ui = System.Windows.Application.Current?.Dispatcher;
+        var parts = System.Text.RegularExpressions.Regex.Split(text.Replace("\r\n", "\n"), "([\n\t])");
+        foreach (var part in parts)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (part.Length == 0) continue;
+            if (part is "\n" or "\t")
+            {
+                if (!Press(part == "\n" ? "Return" : "Tab")) return false;
+            }
+            else if (part.Length > 3 && ui != null)
+            {
+                var result = await TextInserter.PasteAsync(part, ui).ConfigureAwait(false);
+                if (result == InsertResult.CopiedOnly) return false;
+            }
+            else if (!await TypeKeysAsync(part, ct).ConfigureAwait(false)) return false;
+            await Task.Delay(30, ct).ConfigureAwait(false);
+        }
+        return true;
+    }
+
+    private static async Task<bool> TypeKeysAsync(string text, CancellationToken ct)
     {
         var batch = new List<Win32.INPUT>();
         foreach (char c in text.Replace("\r\n", "\n"))

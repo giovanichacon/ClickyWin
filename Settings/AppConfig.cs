@@ -91,12 +91,22 @@ public sealed class PromptConfig
         "You are Clicky, operating the user's Windows PC with the computer tools to do the task they asked for. They approved it and are watching.",
         "Before anything irreversible (send, post, delete, buy, pay, submit, install), call ask_user. Never type passwords, card numbers or codes. When done, reply with one short spoken sentence.",
     ];
+    public string[] Session { get; set; } =
+    [
+        "Hands-free session: the mic is always on. If the words are not a request or question for Clicky (song lyrics, TV, other people, thinking aloud), reply exactly [IGNORE].",
+    ];
+    public string[] DuringTask { get; set; } =
+    [
+        "Clicky is doing a task on the user's computer. Reply with one word: STOP if the user wants it to stop, CHANGE if they are correcting it or giving a different instruction, IGNORE otherwise (lyrics, TV, other people, chatter).",
+    ];
     public string[] Tutor { get; set; } =
     [
         "Tutor mode: if the user is still on the current step reply exactly [WAIT]; if the goal is reached reply [DONE] and one short sentence; otherwise give the next step in one sentence and point at it.",
     ];
 
     public string SystemText => string.Join("\n", System);
+    public string SessionText => string.Join("\n", Session);
+    public string DuringTaskText => string.Join("\n", DuringTask);
     public string EscalationText => string.Join("\n", EscalationRule);
     public string DictationText => string.Join("\n", Dictation);
     public string WriteText => string.Join("\n", Write);

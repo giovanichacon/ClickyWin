@@ -41,6 +41,15 @@ public static class TextInserter
             Logger.Log("[Insert] Typing was blocked — trying paste");
         }
 
+        return await PasteAsync(text, ui).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Pastes text with Ctrl+V and restores the previous clipboard afterwards (kept out of clipboard
+    /// history). CopiedOnly when Windows blocked the keys: the text stays on the clipboard.
+    /// </summary>
+    public static async Task<InsertResult> PasteAsync(string text, Dispatcher ui)
+    {
         // Clipboard work must run on an STA thread: the UI thread
         var backup = await ui.InvokeAsync(() => BackupClipboard());
         bool placed = await ui.InvokeAsync(() => SetClipboardText(text, transient: true));

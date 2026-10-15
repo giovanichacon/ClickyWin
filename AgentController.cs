@@ -19,6 +19,9 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
 
     public bool IsRunning => Volatile.Read(ref _running) == 1;
 
+    /// <summary>The task being done right now ("" when idle).</summary>
+    public string CurrentTask { get; private set; } = "";
+
     /// <summary>Question and spoken result (for the tray panel).</summary>
     public event Action<string, string>? Finished;
 
@@ -38,6 +41,7 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
 
         using var cts = new CancellationTokenSource();
         _cts = cts;
+        CurrentTask = task;
         try
         {
             if (!settings.AgentAlwaysAllow && !preApproved)
@@ -82,6 +86,7 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
         finally
         {
             _cts = null;
+            CurrentTask = "";
             Volatile.Write(ref _running, 0);
         }
     }

@@ -64,6 +64,7 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             _cts?.Cancel();
         }
         Logger.Log($"[Session] Ended ({reason})");
+        agent.Stop(); // ending the session also stops a task in progress
         agent.InSession = false;
         card.SetIdleBanner(null, null);
         if (voice != null) _ = voice.DisposeAsync().AsTask();
@@ -91,8 +92,9 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             {
                 Logger.Log($"[Session] Stop: \"{text}\"");
                 agent.Stop();
+                return;
             }
-            else Logger.Log($"[Session] Ignored while working: \"{text}\"");
+            _ = OnHeardWhileWorkingAsync(text);
             return;
         }
         if (IsEnd(text))
@@ -109,7 +111,26 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
 
         Logger.Log($"[Session] Heard: \"{text}\"");
         L.NoteSpoken(text);
-        companion.AskText(text);
+        companion.AskText(text, session: true);
+    }
+
+    /// <summary>
+    /// Words heard while a task runs: a correction ("no, Claude Code, not Cloudflare") stops the task and
+    /// becomes the next request; "stop" in other words stops it; lyrics, TV and chatter are ignored.
+    /// </summary>
+    private async Task OnHeardWhileWorkingAsync(string text)
+    {
+        var task = agent.CurrentTask;
+        var verdict = await companion.ClassifyDuringTaskAsync(task, text, _cts?.Token ?? CancellationToken.None)
+            .ConfigureAwait(false);
+        Logger.Log($"[Session] While working ({verdict}): \"{text}\"");
+        if (verdict == "IGNORE" || !IsActive) return;
+
+        agent.Stop();
+        if (verdict != "CHANGE") return;
+        for (int i = 0; i < 50 && agent.IsRunning; i++) await Task.Delay(100).ConfigureAwait(false);
+        L.NoteSpoken(text);
+        companion.AskText($"(While Clicky was doing \"{task}\", the user said:) {text}", session: true);
     }
 
     private async Task WatchAsync(CancellationToken ct)

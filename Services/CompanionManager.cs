@@ -203,7 +203,8 @@ public sealed class CompanionManager : IAsyncDisposable
     /// Streams the reply and speaks it sentence by sentence while the rest is still arriving;
     /// flies the cursor to a [POINT] as soon as its tag is complete.
     /// </summary>
-    private async Task ProcessResponseAsync(VoiceSession s, string transcript, List<ScreenshotResult> screenshots)
+    private async Task ProcessResponseAsync(VoiceSession s, string transcript, List<ScreenshotResult> screenshots,
+        bool session = false)
     {
         var reply = new System.Text.StringBuilder();
         var info = new ReplyInfo();
@@ -218,7 +219,8 @@ public sealed class CompanionManager : IAsyncDisposable
 
         try
         {
-            await foreach (var chunk in _claude.StreamReplyAsync(transcript, screenshots, info, s.Token).ConfigureAwait(false))
+            var extra = session ? _settings.Config.Prompts.SessionText : null;
+            await foreach (var chunk in _claude.StreamReplyAsync(transcript, screenshots, info, s.Token, extra).ConfigureAwait(false))
             {
                 reply.Append(chunk);
                 foreach (var sentence in splitter.Add(chunk))
@@ -251,6 +253,11 @@ public sealed class CompanionManager : IAsyncDisposable
         }
         sentences.Writer.TryComplete();
 
+        if (ClaudeService.IsIgnore(reply.ToString()))
+        {
+            Logger.Log($"[Session] Not for Clicky: \"{transcript}\"");
+            return;
+        }
         var fullText = ClaudeService.StripPointTags(reply.ToString());
         Logger.Log($"[Claude] Reply ({info.Model}{(info.Escalated ? ", escalated" : "")}): \"{fullText}\"");
 
@@ -446,7 +453,8 @@ public sealed class CompanionManager : IAsyncDisposable
     // ── Computer use ────────────────────────────────────────────────────────
 
     /// <summary>Runs a typed or session-heard question through the spoken-question pipeline (no hotkey, no mic).</summary>
-    public void AskText(string transcript)
+    /// <param name="session">Hands-free session: overheard words that aren't for Clicky are ignored.</param>
+    public void AskText(string transcript, bool session = false)
     {
         VoiceSession s = new();
         VoiceSession? previous;
@@ -465,7 +473,11 @@ public sealed class CompanionManager : IAsyncDisposable
             try
             {
                 Logger.Log($"[Pipeline] Typed: \"{transcript}\"");
-                await ProcessResponseAsync(s, transcript, CaptureScreens()).ConfigureAwait(false);
+                await ProcessResponseAsync(s, transcript, CaptureScreens(), session).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (s.Token.IsCancellationRequested)
+            {
+                Logger.Log("[Pipeline] Interrupted"); // the user spoke again: not an error worth a balloon
             }
             catch (Exception ex)
             {
@@ -477,6 +489,28 @@ public sealed class CompanionManager : IAsyncDisposable
                 SetState(AppState.Idle, s);
             }
         });
+    }
+
+    /// <summary>
+    /// Hands-free session, while a task runs: is what the mic heard aimed at Clicky? Returns
+    /// "STOP", "CHANGE" or "IGNORE" (everyday model, no screenshot, about a second).
+    /// </summary>
+    public async Task<string> ClassifyDuringTaskAsync(string task, string heard, CancellationToken ct)
+    {
+        try
+        {
+            var info = new ReplyInfo();
+            var reply = await _claude.CompleteAsync(_settings.Config.Prompts.DuringTaskText,
+                ClaudeService.BuildUserContent($"The task: {task}\nThe mic heard: \"{heard}\"", []),
+                info, allowEscalation: false, ct).ConfigureAwait(false);
+            var word = reply.Trim().ToUpperInvariant();
+            return word.StartsWith("STOP") ? "STOP" : word.StartsWith("CHANGE") ? "CHANGE" : "IGNORE";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.Log($"[Session] Could not classify \"{heard}\": {ex.Message}");
+            return "IGNORE";
+        }
     }
 
     /// <summary>Adds a task's outcome to the conversation, so the next question knows what Clicky did.</summary>
