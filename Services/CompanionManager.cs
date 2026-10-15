@@ -283,15 +283,15 @@ public sealed class CompanionManager : IAsyncDisposable
         return true;
     }
 
-    /// <summary>Snaps the guess onto the real element (UI Automation, else a zoomed look), then flies there.</summary>
+    /// <summary>Snaps the guess onto the real element (UI Automation, else a zoomed look), then flies there; skips a wrong guess.</summary>
     private async Task PointAsync(double x, double y, string label, string description,
         System.Drawing.Rectangle screenBounds, CancellationToken ct)
     {
         try
         {
-            (x, y) = await _pointer.RefineAsync(x, y, label, description, screenBounds, ct).ConfigureAwait(false);
-            if (!ct.IsCancellationRequested)
-                PointReceived?.Invoke(x, y, label);
+            if (await _pointer.RefineAsync(x, y, label, description, screenBounds, ct).ConfigureAwait(false) is { } p &&
+                !ct.IsCancellationRequested)
+                PointReceived?.Invoke(p.x, p.y, label);
         }
         catch (OperationCanceledException) { }
     }

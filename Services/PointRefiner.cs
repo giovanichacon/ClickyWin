@@ -12,15 +12,17 @@ namespace ClickyWindows.Services;
 ///    label gives its exact rectangle (taskbar icons, buttons, menus, tabs). No API call.
 /// 2. Zoom: a full-resolution crop around the guess goes back to the everyday model, which
 ///    points again inside the crop.
-/// Any step failing keeps the original guess.
+/// A name match far from the guess is ignored ("Settings" must not jump to an unrelated
+/// "Dictation settings" button), except a unique taskbar match. If the zoomed look says the
+/// element is not there, the guess is wrong and nothing is pointed at. Errors keep the guess.
 /// </summary>
 public sealed class PointRefiner(ClaudeService claude, ScreenCaptureService screen)
 {
     private static readonly TimeSpan UiaTimeout = TimeSpan.FromMilliseconds(800);
     private static readonly TimeSpan ZoomTimeout = TimeSpan.FromSeconds(4);
     private const int CropWidth = 1280, CropHeight = 720;
-    // A window element farther than this share of the screen diagonal is likely a different thing
-    private const double MaxWindowDistance = 0.3;
+    // A name match farther than this share of the screen diagonal is likely a different thing
+    private const double NearDistance = 0.1;
 
     private static readonly HashSet<string> GenericWords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -47,7 +49,8 @@ public sealed class PointRefiner(ClaudeService claude, ScreenCaptureService scre
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Image)));
 
     /// <param name="description">The reply's text, which often describes the element ("next to Premiere").</param>
-    public async Task<(double x, double y)> RefineAsync(double x, double y, string label, string description,
+    /// <returns>Where to point, or null when the element is not where the model thought.</returns>
+    public async Task<(double x, double y)?> RefineAsync(double x, double y, string label, string description,
         Rectangle screenBounds, CancellationToken ct)
     {
         try
@@ -58,10 +61,16 @@ public sealed class PointRefiner(ClaudeService claude, ScreenCaptureService scre
                 return (hit.x, hit.y);
             }
             ct.ThrowIfCancellationRequested();
-            if (await ZoomAsync(x, y, label, description, screenBounds, ct).ConfigureAwait(false) is { } zoom)
+            var (zoom, absent) = await ZoomAsync(x, y, label, description, screenBounds, ct).ConfigureAwait(false);
+            if (zoom is { } z)
             {
-                Logger.Log($"[Point] Zoom refined → ({zoom.x:F0},{zoom.y:F0})");
-                return zoom;
+                Logger.Log($"[Point] Zoom refined → ({z.x:F0},{z.y:F0})");
+                return z;
+            }
+            if (absent)
+            {
+                Logger.Log($"[Point] \"{label}\" is not near the guess — not pointing");
+                return null;
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -95,14 +104,16 @@ public sealed class PointRefiner(ClaudeService claude, ScreenCaptureService scre
 
     internal static (double x, double y, string name)? Search(List<string> words, double x, double y, Rectangle screenBounds)
     {
-        double maxWindow = MaxWindowDistance * Math.Sqrt((double)screenBounds.Width * screenBounds.Width +
-                                                         (double)screenBounds.Height * screenBounds.Height);
+        double near = NearDistance * Math.Sqrt((double)screenBounds.Width * screenBounds.Width +
+                                               (double)screenBounds.Height * screenBounds.Height);
         var cache = new CacheRequest { AutomationElementMode = AutomationElementMode.None };
         cache.Add(AutomationElement.NameProperty);
         cache.Add(AutomationElement.BoundingRectangleProperty);
 
         (double x, double y, string name)? best = null;
         double bestDistance = double.MaxValue;
+        bool bestInTaskbar = false;
+        int matches = 0;
         var roots = Roots(x, y).ToList(); // live elements: fetched before the "cached only" mode applies
         using (cache.Activate())
         {
@@ -120,14 +131,20 @@ public sealed class PointRefiner(ClaudeService claude, ScreenCaptureService scre
                     double cx = rect.Left + rect.Width / 2, cy = rect.Top + rect.Height / 2;
                     if (!screenBounds.Contains((int)cx, (int)cy)) continue;
                     double distance = Math.Sqrt((cx - x) * (cx - x) + (cy - y) * (cy - y));
-                    if (!isTaskbar && distance > maxWindow) continue;
+                    matches++;
                     if (distance < bestDistance)
                     {
                         bestDistance = distance;
                         best = (cx, cy, name);
+                        bestInTaskbar = isTaskbar;
                     }
                 }
             }
+        }
+        if (best is { } b && bestDistance > near && !(bestInTaskbar && matches == 1))
+        {
+            Logger.Log($"[Point] Ignored far name match \"{b.name}\" ({bestDistance:F0} px from the guess)");
+            return null;
         }
         return best;
     }
@@ -159,7 +176,8 @@ public sealed class PointRefiner(ClaudeService claude, ScreenCaptureService scre
 
     // ── 2. Zoom ─────────────────────────────────────────────────────────────
 
-    internal async Task<(double x, double y)?> ZoomAsync(double x, double y, string label, string description,
+    /// <returns>The refined point, or absent = true when the model says the element is not in the crop.</returns>
+    internal async Task<((double x, double y)? point, bool absent)> ZoomAsync(double x, double y, string label, string description,
         Rectangle screenBounds, CancellationToken ct)
     {
         int width = Math.Min(CropWidth, screenBounds.Width), height = Math.Min(CropHeight, screenBounds.Height);
@@ -184,14 +202,15 @@ public sealed class PointRefiner(ClaudeService claude, ScreenCaptureService scre
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             Logger.Log("[Point] Zoom timed out — keeping the guess");
-            return null;
+            return (null, false);
         }
 
         if (ClaudeService.ParsePoints(reply) is not [var point, ..])
         {
-            Logger.Log($"[Point] Zoom: \"{reply.Trim()}\" — keeping the guess");
-            return null;
+            bool absent = reply.Contains("[NONE]", StringComparison.OrdinalIgnoreCase);
+            if (!absent) Logger.Log($"[Point] Zoom: \"{reply.Trim()}\" — keeping the guess");
+            return (null, absent);
         }
-        return crop.ToPhysical(point.X, point.Y);
+        return (crop.ToPhysical(point.X, point.Y), false);
     }
 }
