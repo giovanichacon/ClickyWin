@@ -86,6 +86,11 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             Logger.Log($"[Session] Answer: \"{text}\"");
             return;
         }
+        if (IsNoise(text))
+        {
+            Logger.Log($"[Session] Noise: \"{text}\"");
+            return;
+        }
         if (agent.IsRunning)
         {
             if (IsStop(text))
@@ -106,6 +111,13 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         if (IsStop(text)) // nothing running: "stop" just silences Clicky
         {
             companion.StopSpeaking();
+            return;
+        }
+
+        // A bare "no" / "yeah" is only an answer when Clicky just asked something; otherwise it's music or chatter
+        if (IsBareReply(text) && !companion.LastReply.TrimEnd().EndsWith('?'))
+        {
+            Logger.Log($"[Session] Not a request: \"{text}\"");
             return;
         }
 
@@ -167,6 +179,28 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         "end session", "end the session", "stop the session", "stop session", "that's all", "that's it for now",
         "terminar sesión", "termina la sesión", "terminar la sesión", "fin de la sesión", "eso es todo",
     ];
+
+    private static readonly string[] Fillers = ["mm", "mmm", "hmm", "hm", "uh", "um", "uhm", "ah", "oh", "eh", "huh", "la", "na", "ooh", "yeah yeah"];
+    private static readonly string[] BareReplies =
+        ["no", "nope", "nah", "yes", "yeah", "yep", "yup", "ok", "okay", "sure", "right", "sí", "si", "vale", "claro", "bueno"];
+
+    /// <summary>
+    /// Music and hums: no Latin-script letters (speech-to-text writes a hum as "嗯"), or only filler sounds.
+    /// The user speaks English or Spanish, so anything else isn't for Clicky.
+    /// </summary>
+    private static bool IsNoise(string text)
+    {
+        if (!text.Any(c => char.IsLetter(c) && c < 0x250)) return true;
+        var words = Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.All(w => Fillers.Contains(w) || w.Length > 1 && w.Distinct().Count() == 1);
+    }
+
+    /// <summary>One or two words that only make sense as an answer ("Nope.", "Yeah, okay").</summary>
+    private static bool IsBareReply(string text)
+    {
+        var words = Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length is > 0 and <= 2 && words.All(BareReplies.Contains);
+    }
 
     private static string Normalize(string s) =>
         new string(s.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) || c is '\'' or ' ' ? c : ' ').ToArray()).Trim();

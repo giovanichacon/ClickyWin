@@ -43,6 +43,9 @@ public sealed class CompanionManager : IAsyncDisposable
     /// <summary>The user asked Clicky to do something on the computer: (task, what they said).</summary>
     public event Action<string, string>? DoRequested;
 
+    /// <summary>Clicky's last spoken reply (the hands-free session checks whether it asked something).</summary>
+    public string LastReply { get; private set; } = "";
+
     private CancellationTokenSource? _tutorCts;
 
     public CompanionManager(AppSettings settings, AudioCaptureService mic)
@@ -234,8 +237,13 @@ public sealed class CompanionManager : IAsyncDisposable
                 {
                     doFired = true;
                     Logger.Log($"[Claude] DO \"{task}\"");
+                    if (_settings.AgentQuiet)
+                    {
+                        // act, don't narrate: also cut off any words spoken before the tag
+                        sentences.Writer.TryComplete();
+                        _tts.StopPlayback();
+                    }
                     DoRequested?.Invoke(task, transcript);
-                    if (_settings.AgentQuiet) sentences.Writer.TryComplete(); // act, don't narrate
                 }
             }
             foreach (var sentence in splitter.Flush())
@@ -285,6 +293,7 @@ public sealed class CompanionManager : IAsyncDisposable
             return;
         }
 
+        LastReply = fullText;
         AnswerReady?.Invoke(transcript, fullText);
 
         if (doFired) return;
