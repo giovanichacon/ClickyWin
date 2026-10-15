@@ -18,11 +18,19 @@ public partial class OverlayWindow : Window
     private AppState _appState = AppState.Idle;
     private bool _alwaysShowCursor = true;
     private bool _hwndReady;
+    private IntPtr _hwnd;
+    private double _dpiScale = 1.0;   // cached: reading it costs a GDI call, too much at 60 fps
+    private int _winX = int.MinValue, _winY = int.MinValue;
+
+    // The window is small and moves with the dot (a full-screen layered window costs tens of MB).
+    // The dot center always sits at this local point; the XAML places every element around it.
+    private const double DotLocalX = 60.0;
+    private const double DotLocalY = 60.0;
 
     // ── Spring physics (cursor trailing) ────────────────────────────────────
     // Dot trails the cursor with a spring: responsive but with a pleasant lag.
     // Constants match original Clicky: response ~0.2 s, slight underdamp for a subtle bounce.
-    private double _dotX, _dotY;    // Current dot center in WPF coords relative to this window
+    private double _dotX, _dotY;    // Current dot center in screen DIPs (physical px / DPI scale)
     private double _dotVX, _dotVY;  // Velocity
     private bool   _initialized;
 
@@ -74,7 +82,7 @@ public partial class OverlayWindow : Window
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
+        var hwnd = _hwnd = new WindowInteropHelper(this).Handle;
 
         int exStyle = Win32.GetWindowLong(hwnd, Win32.GWL_EXSTYLE);
         exStyle |= Win32.WS_EX_LAYERED | Win32.WS_EX_TRANSPARENT | Win32.WS_EX_NOACTIVATE;
@@ -89,13 +97,6 @@ public partial class OverlayWindow : Window
         // The spinner/dot must not end up in the screenshots Claude sees
         if (!Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_EXCLUDEFROMCAPTURE))
             Logger.Log($"[Overlay] Could not exclude the overlay from screenshots (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()})");
-
-        var screen = System.Windows.Forms.Screen.PrimaryScreen!;
-        var dpiScale = CoordinateHelper.GetDpiScale();
-        Left   = screen.Bounds.Left   / dpiScale;
-        Top    = screen.Bounds.Top    / dpiScale;
-        Width  = screen.Bounds.Width  / dpiScale;
-        Height = screen.Bounds.Height / dpiScale;
 
         _hwndReady = true;
         UpdateTicking();
@@ -133,11 +134,25 @@ public partial class OverlayWindow : Window
     private void SnapToCursor()
     {
         Win32.GetCursorPos(out var pt);
-        var dpiScale = CoordinateHelper.GetDpiScale();
-        _dotX = pt.X / dpiScale - Left + CursorOffsetX;
-        _dotY = pt.Y / dpiScale - Top + CursorOffsetY;
+        _dpiScale = CoordinateHelper.GetDpiScale();
+        _dotX = pt.X / _dpiScale + CursorOffsetX;
+        _dotY = pt.Y / _dpiScale + CursorOffsetY;
         _dotVX = _dotVY = 0;
         _initialized = true;
+        MoveToDot(); // before anything shows, so nothing flashes where the window last stopped
+    }
+
+    /// <summary>Moves the window so its local dot point lands on the dot's screen position.</summary>
+    private void MoveToDot()
+    {
+        if (!_hwndReady) return;
+        int x = (int)Math.Round((_dotX - DotLocalX) * _dpiScale);
+        int y = (int)Math.Round((_dotY - DotLocalY) * _dpiScale);
+        if (x == _winX && y == _winY) return;
+        _winX = x;
+        _winY = y;
+        Win32.SetWindowPos(_hwnd, IntPtr.Zero, x, y, 0, 0,
+            Win32.SWP_NOSIZE | Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE);
     }
 
     // ── Main tick: spring physics + flight animation + waveform bars ─────────
@@ -147,11 +162,10 @@ public partial class OverlayWindow : Window
         const double dt = 0.016;
 
         Win32.GetCursorPos(out var pt);
-        var dpiScale = CoordinateHelper.GetDpiScale();
 
         // Target position for the dot: cursor + trailing offset
-        double cursorWpfX = pt.X / dpiScale - Left;
-        double cursorWpfY = pt.Y / dpiScale - Top;
+        double cursorWpfX = pt.X / _dpiScale;
+        double cursorWpfY = pt.Y / _dpiScale;
         double targetX = cursorWpfX + CursorOffsetX;
         double targetY = cursorWpfY + CursorOffsetY;
 
@@ -205,26 +219,12 @@ public partial class OverlayWindow : Window
                 break;
         }
 
-        // ── Update element positions ────────────────────────────────────────
+        // ── Move the window; elements are fixed around the local dot point ──
+        MoveToDot();
 
-        // Cursor follower (center of 32×32 grid sits on _dotX, _dotY)
-        System.Windows.Controls.Canvas.SetLeft(CursorFollower, _dotX - 16);
-        System.Windows.Controls.Canvas.SetTop(CursorFollower,  _dotY - 16);
-
-        // Waveform bars: bottom of 20 px container sits at _dotY so bars grow upward from there
+        // Waveform bars: bottom of the 20 px container sits on the dot so bars grow upward
         if (WaveformBars.Visibility == Visibility.Visible)
-        {
-            System.Windows.Controls.Canvas.SetLeft(WaveformBars, _dotX - 9);
-            System.Windows.Controls.Canvas.SetTop(WaveformBars,  _dotY - 20);
             UpdateWaveformBars(dt);
-        }
-
-        // Spinner: centered on _dotX, _dotY
-        if (ProcessingSpinner.Visibility == Visibility.Visible)
-        {
-            System.Windows.Controls.Canvas.SetLeft(ProcessingSpinner, _dotX - 11);
-            System.Windows.Controls.Canvas.SetTop(ProcessingSpinner,  _dotY - 11);
-        }
     }
 
     // ── Waveform bar animation ──────────────────────────────────────────────
@@ -325,15 +325,12 @@ public partial class OverlayWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            var dpiScale = CoordinateHelper.GetDpiScale();
-            double wpfX = physX / dpiScale - Left;
-            double wpfY = physY / dpiScale - Top;
+            if (!_cursorTimer.IsEnabled) SnapToCursor(); // hidden idle dot: fly out from the cursor
+            double wpfX = physX / _dpiScale;
+            double wpfY = physY / _dpiScale;
 
-            // Pulse ring appears at target immediately
-            System.Windows.Controls.Canvas.SetLeft(TargetPointer, wpfX - 24);
-            System.Windows.Controls.Canvas.SetTop(TargetPointer,  wpfY - 24);
-            TargetPointer.Visibility = Visibility.Visible;
-            AnimatePulse();
+            // The pulse ring rides in the dot's window, so it starts when the dot lands (OnArrivedAtTarget)
+            TargetPointer.Visibility = Visibility.Collapsed;
 
             // Begin flight from current dot position to target
             _flightStartX  = _dotX;
@@ -359,9 +356,9 @@ public partial class OverlayWindow : Window
     // Called on the Dispatcher thread when the flight animation completes
     private void OnArrivedAtTarget()
     {
-        // Label positioned to the right of and slightly below the target center
-        System.Windows.Controls.Canvas.SetLeft(TargetLabel, _flightTargetX + 20);
-        System.Windows.Controls.Canvas.SetTop(TargetLabel,  _flightTargetY + 12);
+        // Pulse ring on the target; the label sits right of and slightly below it (fixed in XAML)
+        TargetPointer.Visibility = Visibility.Visible;
+        AnimatePulse();
 
         // Use a random utterance phrase (same pool as original Clicky)
         var utterances = L.Utterances;
@@ -430,10 +427,7 @@ public partial class OverlayWindow : Window
             _labelTimer?.Stop();
             if (!_cursorTimer.IsEnabled) SnapToCursor(); // hidden idle dot: show the bubble at the cursor
 
-            // Position near current dot location
-            System.Windows.Controls.Canvas.SetLeft(TargetLabel, _dotX + 20);
-            System.Windows.Controls.Canvas.SetTop(TargetLabel,  _dotY + 12);
-
+            // The label sits next to the dot (fixed in XAML)
             TargetLabelText.Text    = message;
             TargetLabel.Opacity     = 0;
             TargetLabel.Visibility  = Visibility.Visible;

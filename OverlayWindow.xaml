@@ -11,14 +11,17 @@
         ResizeMode="NoResize"
         WindowStartupLocation="Manual"
         Left="-9999" Top="-9999"
-        Width="200" Height="200">
+        Width="320" Height="200">
 
     <Canvas x:Name="OverlayCanvas">
+
+        <!-- The window is small and moves with the dot: every element sits at a fixed spot
+             around the dot center, which is always local point (DotLocalX, DotLocalY) = (60, 60). -->
 
         <!-- Main cursor dot — trails the mouse with spring physics, flies to targets.
              ScaleTransform allows a grow-to-1.3x pulse during flight. -->
         <Grid x:Name="CursorFollower" Width="32" Height="32"
-              Canvas.Left="0" Canvas.Top="0"
+              Canvas.Left="44" Canvas.Top="44"
               RenderTransformOrigin="0.5,0.5">
             <Grid.RenderTransform>
                 <ScaleTransform x:Name="DotScale" ScaleX="1" ScaleY="1"/>
@@ -45,7 +48,7 @@
              Bars use VerticalAlignment=Bottom so they grow upward from a common baseline. -->
         <StackPanel x:Name="WaveformBars"
                     Orientation="Horizontal"
-                    Canvas.Left="0" Canvas.Top="0"
+                    Canvas.Left="51" Canvas.Top="40"
                     Visibility="Collapsed"
                     Height="20">
             <StackPanel.Effect>
@@ -62,7 +65,7 @@
              SpinnerScale allows a throb pulse when transcript is confirmed. -->
         <Grid x:Name="ProcessingSpinner"
               Width="22" Height="22"
-              Canvas.Left="0" Canvas.Top="0"
+              Canvas.Left="49" Canvas.Top="49"
               Visibility="Collapsed"
               RenderTransformOrigin="0.5,0.5">
             <Grid.RenderTransform>
@@ -87,7 +90,7 @@
 
         <!-- Target pointer — pulse ring + resting dot at the detected element position -->
         <Grid x:Name="TargetPointer" Width="48" Height="48"
-              Canvas.Left="0" Canvas.Top="0"
+              Canvas.Left="36" Canvas.Top="36"
               Visibility="Collapsed">
             <!-- Pulsing outer ring -->
             <Ellipse x:Name="PulseRing" Width="48" Height="48"
@@ -109,7 +112,7 @@
 
         <!-- Utterance label — fades in on arrival, holds 3 s, fades out before return flight -->
         <Border x:Name="TargetLabel"
-                Canvas.Left="0" Canvas.Top="0"
+                Canvas.Left="80" Canvas.Top="72"
                 Visibility="Collapsed"
                 Opacity="0"
                 Background="#CC101211"

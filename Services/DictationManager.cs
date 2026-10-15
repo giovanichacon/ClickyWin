@@ -270,7 +270,7 @@ public sealed class DictationManager : IAsyncDisposable
             context.AppendLine($"Selected text (your output replaces it):\n<selection>\n{focus.Selection}\n</selection>");
         if (focus.FieldText.Length > 0)
             context.AppendLine($"Current text in the box:\n<box>\n{focus.FieldText}\n</box>");
-        context.Append($"Spoken request: {request}");
+        context.Append($"Spoken request:\n<request>\n{request}\n</request>");
 
         var info = new ReplyInfo();
         var text = await _claude.CompleteAsync(_settings.Config.Prompts.WriteText,
