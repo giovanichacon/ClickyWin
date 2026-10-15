@@ -107,7 +107,9 @@ public partial class App
         SetupTrayIcon();
 
         Logger.Log($"Clicky ready. Ask: {_askText} | Dictate: {_dictateText} | Write: {_writeText} | Prompt: {_promptText}");
-        int doArg = Array.IndexOf(e.Args, "--do");
+        int doArg = Array.IndexOf(e.Args, "--do"), askArg = Array.IndexOf(e.Args, "--ask");
+        if (askArg >= 0 && askArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
+            _companion.AskText(e.Args[askArg + 1]); // testing: a spoken question without the mic
         if (doArg >= 0 && doArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
             _ = _agent.RunAsync(e.Args[doArg + 1], e.Args[doArg + 1]); // testing: a task without the hotkey
         else if (e.Args.Contains("--panel"))

@@ -130,11 +130,13 @@ internal static class InputDriver
                 batch.Add(Win32.Unicode(c, false));
                 batch.Add(Win32.Unicode(c, true));
             }
-            if (batch.Count >= 64)
+            // A few characters at a time with a pause: an app that just opened (or autocompletes)
+            // garbles long bursts of synthetic keys
+            if (batch.Count >= 8)
             {
                 if (!Win32.Send([.. batch])) return false;
                 batch.Clear();
-                await Task.Delay(8, ct).ConfigureAwait(false); // let slow apps keep up
+                await Task.Delay(15, ct).ConfigureAwait(false);
             }
         }
         return Win32.Send([.. batch]);

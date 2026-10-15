@@ -14,7 +14,7 @@ Base: emreyilmaz46/clicky_windows (MIT), remote `upstream`. Work on branch `dev`
 - `Services/SpeechService.cs`: ElevenLabs, falls back to Windows SAPI voices.
 - `Services/PointRefiner.cs`: snaps [POINT] guesses onto UIA elements by name (taskbar/foreground), else a full-res zoom crop.
 - `Services/ScreenCaptureService.cs`: images kept under Claude no-resize limits so [POINT] coords map back exactly.
-- Computer use (2026-10-15): Ask reply ends with `[DO: task]` → `AgentController` (Allow card → countdown → run) → `Services/ComputerAgent.cs` (computer_toolset_20260801 + `ask_user` tool, primary monitor at ≤1280x800, coords mapped back) → `Helpers/InputDriver.cs` (SendInput). `UserInputWatcher` stops it on the user's real mouse/keys/Esc. `AgentCard` = approval/confirm/banner (excluded from capture). Test without the hotkey: `ClickyWindows.exe --do "task"`. Settings: AgentModel (Opus 5.5 default, Haiku 5.5 cheap), AgentAlwaysAllow, AgentCostCap.
+- Computer use (2026-10-15): Ask reply ends with `[DO: task]` → `AgentController` (Allow card → countdown → run) → `Services/ComputerAgent.cs` (computer_toolset_20260801 + `ask_user` tool, primary monitor at ≤1280x800, coords mapped back) → `Helpers/InputDriver.cs` (SendInput). `UserInputWatcher` stops it on the user's real mouse/keys/Esc. `AgentCard` = approval/confirm/banner (excluded from capture). Test without the hotkey: `--do "task"` (agent directly) or `--ask "question"` (typed question through the Ask pipeline). Settings: AgentModel (Opus 5.5 default, Haiku 5.5 cheap), AgentAlwaysAllow, AgentCostCap.
 - `Helpers/L.cs`: ES/EN strings ("Auto" follows the language last spoken).
 
 ## Rules

@@ -214,6 +214,7 @@ public sealed class CompanionManager : IAsyncDisposable
         var speaking = _tts.SpeakSentencesAsync(sentences.Reader, () => SetState(AppState.Speaking, s), s.Token);
         var splitter = new SentenceSplitter();
         bool claudeFailed = false;
+        bool doFired = false;
 
         try
         {
@@ -225,6 +226,14 @@ public sealed class CompanionManager : IAsyncDisposable
 
                 if (!pointed && TryPoint(reply.ToString(), screenshots, s.Token))
                     pointed = true;
+
+                // [DO: task] comes first: open the Allow card while the reply is still being spoken
+                if (!doFired && ClaudeService.ParseDoTask(reply.ToString()) is { } task)
+                {
+                    doFired = true;
+                    Logger.Log($"[Claude] DO \"{task}\"");
+                    DoRequested?.Invoke(task, transcript);
+                }
             }
             foreach (var sentence in splitter.Flush())
                 sentences.Writer.TryWrite(sentence);
@@ -270,12 +279,7 @@ public sealed class CompanionManager : IAsyncDisposable
 
         AnswerReady?.Invoke(transcript, fullText);
 
-        if (ClaudeService.ParseDoTask(reply.ToString()) is { } task && !s.Token.IsCancellationRequested)
-        {
-            Logger.Log($"[Claude] DO \"{task}\"");
-            DoRequested?.Invoke(task, transcript);
-            return;
-        }
+        if (doFired) return;
 
         // Tutor mode: a reply that pointed somewhere is a step; keep watching for the next one
         if (pointed && _settings.TutorMode && !s.Token.IsCancellationRequested)
@@ -430,6 +434,35 @@ public sealed class CompanionManager : IAsyncDisposable
     }
 
     // ── Computer use ────────────────────────────────────────────────────────
+
+    /// <summary>Runs a typed question through the spoken-question pipeline (testing: --ask "text").</summary>
+    public void AskText(string transcript)
+    {
+        VoiceSession s = new();
+        lock (_gate)
+        {
+            _current = s;
+            _state = AppState.Processing;
+        }
+        StateChanged?.Invoke(AppState.Processing);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                Logger.Log($"[Pipeline] Typed: \"{transcript}\"");
+                await ProcessResponseAsync(s, transcript, CaptureScreens()).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Pipeline] Unexpected error: {ex}");
+            }
+            finally
+            {
+                await s.DisposeAsync().ConfigureAwait(false);
+                SetState(AppState.Idle, s);
+            }
+        });
+    }
 
     /// <summary>Shows the cursor while Clicky works (Speaking) and hides it after (Idle); never overrides a question.</summary>
     public void SetAgentState(AppState state) => SetTutorState(state);
