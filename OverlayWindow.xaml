@@ -18,30 +18,23 @@
         <!-- The window is small and moves with the dot: every element sits at a fixed spot
              around the dot center, which is always local point (DotLocalX, DotLocalY) = (60, 60). -->
 
-        <!-- Main cursor dot — trails the mouse with spring physics, flies to targets.
+        <!-- Cursor: the mac blue triangle (equilateral, 16 px, tilted -35° like a pointer). It trails the
+             mouse with spring physics, turns to face its flight direction and rests on the target.
              ScaleTransform allows a grow-to-1.3x pulse during flight. -->
         <Grid x:Name="CursorFollower" Width="32" Height="32"
               Canvas.Left="44" Canvas.Top="44"
               RenderTransformOrigin="0.5,0.5">
             <Grid.RenderTransform>
-                <ScaleTransform x:Name="DotScale" ScaleX="1" ScaleY="1"/>
+                <TransformGroup>
+                    <ScaleTransform x:Name="DotScale" ScaleX="1" ScaleY="1"/>
+                    <RotateTransform x:Name="CursorRotate" Angle="-35"/>
+                </TransformGroup>
             </Grid.RenderTransform>
-            <!-- Outer glow ring -->
-            <Ellipse Width="32" Height="32"
-                     Stroke="#403380FF" StrokeThickness="2"
-                     Fill="Transparent">
-                <Ellipse.Effect>
-                    <BlurEffect Radius="4"/>
-                </Ellipse.Effect>
-            </Ellipse>
-            <!-- Inner solid dot -->
-            <Ellipse Width="12" Height="12"
-                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                     Fill="#CC3380FF">
-                <Ellipse.Effect>
-                    <DropShadowEffect Color="#3380FF" BlurRadius="8" ShadowDepth="0" Opacity="0.9"/>
-                </Ellipse.Effect>
-            </Ellipse>
+            <Path Data="M16,6.76 L8,20.62 L24,20.62 Z" Fill="#3380FF">
+                <Path.Effect>
+                    <DropShadowEffect x:Name="CursorGlow" Color="#3380FF" BlurRadius="16" ShadowDepth="0" Opacity="1"/>
+                </Path.Effect>
+            </Path>
         </Grid>
 
         <!-- Audio waveform — 5 bars that react to mic level during Listening state.
@@ -88,45 +81,28 @@
             </Ellipse>
         </Grid>
 
-        <!-- Target pointer — pulse ring + resting dot at the detected element position -->
-        <Grid x:Name="TargetPointer" Width="48" Height="48"
-              Canvas.Left="36" Canvas.Top="36"
-              Visibility="Collapsed">
-            <!-- Pulsing outer ring -->
-            <Ellipse x:Name="PulseRing" Width="48" Height="48"
-                     Stroke="#FF3380FF" StrokeThickness="2"
-                     Fill="Transparent" Opacity="0">
-                <Ellipse.RenderTransform>
-                    <ScaleTransform x:Name="PulseScale" CenterX="24" CenterY="24"/>
-                </Ellipse.RenderTransform>
-            </Ellipse>
-            <!-- Center dot — the cursor rests here while pointing -->
-            <Ellipse Width="16" Height="16"
-                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                     Fill="#FF3380FF">
-                <Ellipse.Effect>
-                    <DropShadowEffect Color="#3380FF" BlurRadius="12" ShadowDepth="0" Opacity="1"/>
-                </Ellipse.Effect>
-            </Ellipse>
-        </Grid>
-
-        <!-- Utterance label — fades in on arrival, holds 3 s, fades out before return flight -->
+        <!-- Speech bubble (mac navigation bubble): solid blue, white 11 px text, pops in with a
+             scale bounce on arrival. Also used for feedback messages. -->
         <Border x:Name="TargetLabel"
-                Canvas.Left="80" Canvas.Top="72"
+                Canvas.Left="70" Canvas.Top="68"
                 Visibility="Collapsed"
                 Opacity="0"
-                Background="#CC101211"
+                Background="#3380FF"
                 CornerRadius="6"
                 Padding="8,4"
-                BorderBrush="#443380FF" BorderThickness="1">
+                RenderTransformOrigin="0,0.5">
+            <Border.RenderTransform>
+                <ScaleTransform x:Name="BubbleScale" ScaleX="1" ScaleY="1"/>
+            </Border.RenderTransform>
             <Border.Effect>
-                <DropShadowEffect Color="#3380FF" BlurRadius="8" ShadowDepth="0" Opacity="0.4"/>
+                <DropShadowEffect Color="#3380FF" BlurRadius="12" ShadowDepth="0" Opacity="0.5"/>
             </Border.Effect>
             <TextBlock x:Name="TargetLabelText"
-                       Foreground="#ECEEED"
-                       FontSize="12"
+                       Foreground="White"
+                       FontSize="11"
+                       FontWeight="Medium"
                        FontFamily="Segoe UI"
-                       MaxWidth="200"
+                       MaxWidth="220"
                        TextWrapping="Wrap"/>
         </Border>
 

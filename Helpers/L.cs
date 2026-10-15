@@ -70,9 +70,9 @@ public static partial class L
     public static string PanelDictations => T("Dictados recientes (clic para copiar)", "Recent dictations (click to copy)");
     public static string PanelCopy => T("Copiar", "Copy");
     public static string PanelCopied => T("Copiado ✓", "Copied ✓");
-    public static string PanelShortcuts(string ask, string dictate, string write, string prompt) => T(
-        $"Preguntar: {ask}  ·  Dictar: {dictate}  ·  Escribir: {write}  ·  Prompt: {prompt}",
-        $"Ask: {ask}  ·  Dictate: {dictate}  ·  Write: {write}  ·  Prompt: {prompt}");
+    public static string PanelShortcuts(string dictate, string write, string prompt) => T(
+        $"Dictar: {dictate}  ·  Escribir: {write}  ·  Prompt: {prompt}",
+        $"Dictate: {dictate}  ·  Write: {write}  ·  Prompt: {prompt}");
     public static string MenuSettings => T("Configuración…", "Settings…");
     public static string MenuLog => T("Ver registro", "View log");
     public static string MenuFolder => T("Abrir carpeta de datos", "Open data folder");

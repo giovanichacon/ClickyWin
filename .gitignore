@@ -19,3 +19,7 @@ obj/
 Thumbs.db
 .DS_Store
 publish/
+
+# Installer output
+publish-dist/
+dist/

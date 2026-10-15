@@ -195,6 +195,9 @@ public partial class OverlayWindow : Window
 
                 // Smoothstep easing: ease = 3t²−2t³
                 double ease = p * p * (3.0 - 2.0 * p);
+                // Face the direction of travel (+90°: the triangle's tip points up at 0°)
+                CursorRotate.Angle = Math.Atan2(_flightTargetY - _flightStartY, _flightTargetX - _flightStartX)
+                                     * 180.0 / Math.PI + 90.0;
                 _dotX = _flightStartX + (_flightTargetX - _flightStartX) * ease;
                 _dotY = _flightStartY + (_flightTargetY - _flightStartY) * ease;
 
@@ -202,13 +205,15 @@ public partial class OverlayWindow : Window
                 double scale = 1.0 + Math.Sin(p * Math.PI) * 0.3;
                 DotScale.ScaleX = scale;
                 DotScale.ScaleY = scale;
+                CursorGlow.BlurRadius = 16 + (scale - 1.0) * 40; // glow swells mid-flight, like mac
 
                 if (p >= 1.0)
                 {
                     DotScale.ScaleX = DotScale.ScaleY = 1.0;
+                    CursorGlow.BlurRadius = 16;
                     _dotVX = _dotVY = 0;
-                    // Flying dot hides; TargetPointer's center dot becomes the visual at target
-                    CursorFollower.Visibility = Visibility.Collapsed;
+                    // The triangle rests on the target in its pointer pose (mac: -35°)
+                    AnimateRotation(-35);
                     _dotState = DotState.PointingAtTarget;
                     OnArrivedAtTarget();
                 }
@@ -287,10 +292,10 @@ public partial class OverlayWindow : Window
                     // Cancel any in-progress pointing and return to spring following
                     if (_dotState != DotState.FollowingCursor)
                     {
-                        TargetPointer.Visibility = Visibility.Collapsed;
                         TargetLabel.Visibility   = Visibility.Collapsed;
                         _dotVX = _dotVY = 0;
                         _dotState = DotState.FollowingCursor;
+                        AnimateRotation(-35);
                     }
                     // Replace dot with animated waveform bars
                     CursorFollower.Visibility = Visibility.Collapsed;
@@ -308,9 +313,7 @@ public partial class OverlayWindow : Window
                     WaveformBars.Visibility      = Visibility.Collapsed;
                     ProcessingSpinner.Visibility = Visibility.Collapsed;
                     StopSpinner();
-                    // Show dot unless it's currently pointing (TargetPointer center dot fills that role)
-                    if (_dotState != DotState.PointingAtTarget)
-                        CursorFollower.Visibility = Visibility.Visible;
+                    CursorFollower.Visibility = Visibility.Visible;
                     break;
             }
             UpdateTicking();
@@ -329,9 +332,6 @@ public partial class OverlayWindow : Window
             double wpfX = physX / _dpiScale;
             double wpfY = physY / _dpiScale;
 
-            // The pulse ring rides in the dot's window, so it starts when the dot lands (OnArrivedAtTarget)
-            TargetPointer.Visibility = Visibility.Collapsed;
-
             // Begin flight from current dot position to target
             _flightStartX  = _dotX;
             _flightStartY  = _dotY;
@@ -347,6 +347,7 @@ public partial class OverlayWindow : Window
             _flightDuration = Math.Clamp(dist / 800.0, 0.5, 1.4);
 
             _labelTimer?.Stop();
+            CursorRotate.BeginAnimation(RotateTransform.AngleProperty, null); // the tick sets the heading
             CursorFollower.Visibility = Visibility.Visible;
             _dotState = DotState.FlyingToTarget;
             UpdateTicking();
@@ -356,19 +357,11 @@ public partial class OverlayWindow : Window
     // Called on the Dispatcher thread when the flight animation completes
     private void OnArrivedAtTarget()
     {
-        // Pulse ring on the target; the label sits right of and slightly below it (fixed in XAML)
-        TargetPointer.Visibility = Visibility.Visible;
-        AnimatePulse();
-
+        // Speech bubble right of and slightly below the triangle (fixed in XAML).
         // Use a random utterance phrase (same pool as original Clicky)
         var utterances = L.Utterances;
         TargetLabelText.Text = utterances[Rng.Next(utterances.Length)];
-        TargetLabel.Opacity    = 0;
-        TargetLabel.Visibility = Visibility.Visible;
-
-        // Fade in
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.3));
-        TargetLabel.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        PopBubble();
 
         // Hold for 3 s, then fade out and resume cursor following
         _labelTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.3) };
@@ -397,7 +390,6 @@ public partial class OverlayWindow : Window
 
         if (cancelPointer)
         {
-            TargetPointer.Visibility = Visibility.Collapsed;
             TargetLabel.Visibility   = Visibility.Collapsed;
             TargetLabel.BeginAnimation(UIElement.OpacityProperty, null);
         }
@@ -405,6 +397,7 @@ public partial class OverlayWindow : Window
         _dotVX    = 0;
         _dotVY    = 0;
         _dotState = DotState.FollowingCursor;
+        AnimateRotation(-35);
 
         // Show dot only if the app isn't in a state that uses a different indicator
         if (_appState == AppState.Speaking || (_appState == AppState.Idle && _alwaysShowCursor))
@@ -428,12 +421,8 @@ public partial class OverlayWindow : Window
             if (!_cursorTimer.IsEnabled) SnapToCursor(); // hidden idle dot: show the bubble at the cursor
 
             // The label sits next to the dot (fixed in XAML)
-            TargetLabelText.Text    = message;
-            TargetLabel.Opacity     = 0;
-            TargetLabel.Visibility  = Visibility.Visible;
-
-            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.25));
-            TargetLabel.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            TargetLabelText.Text = message;
+            PopBubble();
             UpdateTicking();
 
             // Hold 3 s then fade out; don't change dot state
@@ -490,22 +479,27 @@ public partial class OverlayWindow : Window
         });
     }
 
-    // ── Pulse ring animation ────────────────────────────────────────────────
+    // ── Bubble and triangle animations ──────────────────────────────────────
 
-    private void AnimatePulse()
+    /// <summary>mac navigation bubble entrance: fade in while springing from 0.5x to 1x.</summary>
+    private void PopBubble()
     {
-        var scaleAnim = new DoubleAnimation(0.5, 2.0, TimeSpan.FromSeconds(1.2))
-        {
-            RepeatBehavior = new RepeatBehavior(3),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-        };
-        var opacityAnim = new DoubleAnimation(1.0, 0.0, TimeSpan.FromSeconds(1.2))
-        {
-            RepeatBehavior = new RepeatBehavior(3),
-        };
+        TargetLabel.Opacity = 0;
+        TargetLabel.Visibility = Visibility.Visible;
+        TargetLabel.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.25)));
 
-        PulseScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, scaleAnim);
-        PulseScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, scaleAnim);
-        PulseRing.BeginAnimation(UIElement.OpacityProperty, opacityAnim);
+        var pop = new DoubleAnimation(0.5, 1.0, TimeSpan.FromSeconds(0.4))
+        {
+            EasingFunction = new ElasticEase { Oscillations = 1, Springiness = 6, EasingMode = EasingMode.EaseOut },
+        };
+        BubbleScale.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
+        BubbleScale.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
     }
+
+    /// <summary>Eases the triangle back to its pointer pose (mac: 0.3 s ease-in-out).</summary>
+    private void AnimateRotation(double angle) =>
+        CursorRotate.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(angle, TimeSpan.FromSeconds(0.3))
+        {
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+        });
 }

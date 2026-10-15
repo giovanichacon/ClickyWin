@@ -81,7 +81,7 @@ public partial class App
         MainWindow = _mainWindow;
         _mainWindow.Show();
 
-        _panel = new QuickPanel(_settings, OpenSetup);
+        _panel = new QuickPanel(_settings, OpenSetup, QuitApp);
         _companion.StateChanged += state => Dispatcher.InvokeAsync(() => _panel.SetState(state));
         _dictation.StateChanged += state => Dispatcher.InvokeAsync(() => _panel.SetState(state));
         _companion.AnswerReady += OnAnswerReady;
@@ -218,15 +218,7 @@ public partial class App
 
     private void SetupTrayIcon()
     {
-        var bitmap = new Bitmap(16, 16);
-        using (var g = System.Drawing.Graphics.FromImage(bitmap))
-        {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(System.Drawing.Color.Transparent);
-            g.FillEllipse(new SolidBrush(System.Drawing.Color.FromArgb(0x25, 0x63, 0xEB)), 1, 1, 14, 14);
-            g.DrawEllipse(new Pen(System.Drawing.Color.White, 1.5f), 2, 2, 12, 12);
-        }
-        var icon = System.Drawing.Icon.FromHandle(bitmap.GetHicon());
+        var icon = MakeTrayIcon(SystemInformation.SmallIconSize.Width);
 
         _trayIcon = new NotifyIcon { Icon = icon, Visible = true };
         _trayIcon.MouseUp += (_, args) =>
@@ -240,6 +232,29 @@ public partial class App
             }
         };
         RebuildTrayMenu();
+    }
+
+    /// <summary>
+    /// The mac menu-bar icon: the Clicky triangle (70 % of the icon, tilted like the cursor),
+    /// in the cursor blue so it reads on light and dark taskbars. Drawn at the tray's DPI size.
+    /// </summary>
+    private static Icon MakeTrayIcon(int size)
+    {
+        using var bitmap = new Bitmap(size, size);
+        using (var g = System.Drawing.Graphics.FromImage(bitmap))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(System.Drawing.Color.Transparent);
+            double side = size * 0.7, c = size / 2.0, h = side * Math.Sqrt(3) / 2;
+            (double X, double Y)[] corners = [(c, c - h / 1.5), (c - side / 2, c + h / 3), (c + side / 2, c + h / 3)];
+            double a = -35 * Math.PI / 180; // screen y points down, so -35° tilts the tip up-left as on mac
+            var points = corners.Select(p => new PointF(
+                (float)(c + Math.Cos(a) * (p.X - c) - Math.Sin(a) * (p.Y - c)),
+                (float)(c + Math.Sin(a) * (p.X - c) + Math.Cos(a) * (p.Y - c)))).ToArray();
+            using var fill = new SolidBrush(System.Drawing.Color.FromArgb(0x33, 0x80, 0xFF));
+            g.FillPolygon(fill, points);
+        }
+        return System.Drawing.Icon.FromHandle(bitmap.GetHicon());
     }
 
     /// <summary>Menu text follows the UI language, so it is rebuilt after Settings are saved.</summary>
@@ -257,6 +272,7 @@ public partial class App
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(L.MenuQuit, null, (_, _) => QuitApp());
 
+        DarkMenu.Apply(menu);
         _trayIcon.ContextMenuStrip = menu;
         var tip = $"Clicky — {L.HoldToTalk(_askText)}";
         _trayIcon.Text = tip.Length > 63 ? tip[..63] : tip; // NotifyIcon limit

@@ -57,6 +57,9 @@ public partial class SetupWindow : Window
         };
 
         Title = L.SetupTitle;
+        HeaderTitle.Text = L.MenuSettings.TrimEnd('…');
+        // Windows 11 draws the rounded border itself; the XAML border is the Windows 10 fallback
+        SourceInitialized += (_, _) => { if (MacChrome.Apply(this)) Frame.BorderThickness = new Thickness(0); };
         KeysTab.Header = L.TabKeys;
         VoiceTab.Header = L.TabVoice;
         ShortcutsTab.Header = L.TabShortcuts;
@@ -162,10 +165,13 @@ public partial class SetupWindow : Window
 
     private static string Selected(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
 
+    /// <summary>A brush from Themes/Dark.xaml (mac design-system colors).</summary>
+    private static System.Windows.Media.Brush Res(string key) => (System.Windows.Media.Brush)System.Windows.Application.Current.FindResource(key);
+
     private static void SetStatus(TextBlock block, string text, bool error)
     {
         block.Text = text;
-        block.Foreground = error ? Brushes.Firebrick : Brushes.DimGray;
+        block.Foreground = Res(error ? "Destructive" : "TextTertiary");
     }
 
     // ── Microphone preview ──────────────────────────────────────────────────
@@ -216,7 +222,7 @@ public partial class SetupWindow : Window
 
         var box = _shortcutBoxes[action];
         box.Text = L.HotkeyPress;
-        box.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xF4, 0xD6));
+        box.Background = new SolidColorBrush(Color.FromArgb(0x33, 0x25, 0x63, 0xEB)); // accent tint while recording
         SetStatus(ShortcutStatus, "", error: false);
 
         _keys.BeginRecording(text => Dispatcher.InvokeAsync(() =>
@@ -314,7 +320,7 @@ public partial class SetupWindow : Window
                 using var windows = new WindowsVoiceService(() => voice, () => speed);
                 await Task.Run(() => windows.SpeakAsync(L.PreviewText, null, CancellationToken.None));
             }
-            VoiceNameStatus.Foreground = Brushes.DimGray;
+            VoiceNameStatus.Foreground = Res("TextTertiary");
         }
         catch (Exception ex)
         {
@@ -359,7 +365,7 @@ public partial class SetupWindow : Window
         {
             var (ok, message) = await test(key);
             status.Text = ok ? $"{L.TestOk} — {message}" : L.TestFail(message);
-            status.Foreground = ok ? Brushes.SeaGreen : Brushes.Firebrick;
+            status.Foreground = Res(ok ? "Success" : "Destructive");
         }
         finally
         {

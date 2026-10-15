@@ -16,6 +16,12 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Per-monitor DPI v2 — WPF handles this; must NOT also be in app.manifest -->
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- App icon: the mac Clicky AppIcon (MIT, © Farza), packed from its PNGs -->
+    <ApplicationIcon>Assets\Clicky.ico</ApplicationIcon>
+    <Product>Clicky</Product>
+    <AssemblyTitle>Clicky</AssemblyTitle>
+    <Description>Clicky for Windows: voice AI companion that sees your screen</Description>
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

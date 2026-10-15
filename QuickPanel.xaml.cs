@@ -19,15 +19,17 @@ public partial class QuickPanel : Window
 {
     private readonly AppSettings _settings;
     private readonly Action _openSettings;
+    private readonly Action _quit;
     private string _answer = "";
 
     public sealed record DictationItem(string Text, string Meta, string Full);
 
-    public QuickPanel(AppSettings settings, Action openSettings)
+    public QuickPanel(AppSettings settings, Action openSettings, Action quit)
     {
         InitializeComponent();
         _settings = settings;
         _openSettings = openSettings;
+        _quit = quit;
         Deactivated += (_, _) => Hide();
         Localize();
         SetState(AppState.Idle);
@@ -37,26 +39,33 @@ public partial class QuickPanel : Window
 
     public void Localize()
     {
-        AnswerLabel.Text = L.PanelLastAnswer;
-        DictationsLabel.Text = L.PanelDictations;
+        AnswerLabel.Text = L.PanelLastAnswer.ToUpperInvariant();
+        DictationsLabel.Text = L.PanelDictations.ToUpperInvariant();
+        SettingsText.Text = L.MenuSettings.TrimEnd('…');
+        QuitText.Text = L.MenuQuit;
         CopyAnswerButton.Content = L.PanelCopy;
         TutorBox.Content = new TextBlock { Text = L.TutorLabel, TextWrapping = TextWrapping.Wrap };
         TutorBox.IsChecked = _settings.TutorMode;
     }
 
-    public void SetShortcuts(string ask, string dictate, string write, string prompt) =>
-        ShortcutsText.Text = L.PanelShortcuts(ask, dictate, write, prompt);
+    public void SetShortcuts(string ask, string dictate, string write, string prompt)
+    {
+        HoldText.Text = L.HoldToTalk(ask) + ".";
+        ShortcutsText.Text = L.PanelShortcuts(dictate, write, prompt);
+    }
 
     public void SetState(AppState state)
     {
+        // mac statusDotColor: green when idle, blue-400 while listening, thinking or speaking
         (StatusText.Text, var color) = state switch
         {
-            AppState.Listening => (L.PanelListening, Color.FromRgb(0xE1, 0x1D, 0x48)),
-            AppState.Processing => (L.PanelThinking, Color.FromRgb(0xF5, 0x9E, 0x0B)),
-            AppState.Speaking => (L.PanelSpeaking, Color.FromRgb(0x16, 0xA3, 0x4A)),
-            _ => (L.PanelReady, Color.FromRgb(0x25, 0x63, 0xEB)),
+            AppState.Listening => (L.PanelListening, Color.FromRgb(0x60, 0xA5, 0xFA)),
+            AppState.Processing => (L.PanelThinking, Color.FromRgb(0x60, 0xA5, 0xFA)),
+            AppState.Speaking => (L.PanelSpeaking, Color.FromRgb(0x60, 0xA5, 0xFA)),
+            _ => (L.PanelReady, Color.FromRgb(0x34, 0xD3, 0x99)),
         };
         StatusDot.Fill = new SolidColorBrush(color);
+        StatusGlow.Color = color;
     }
 
     public void SetAnswer(string question, string answer)
@@ -102,7 +111,7 @@ public partial class QuickPanel : Window
     {
         if (DictationList.SelectedItem is DictationItem item && TextInserter.SetClipboardText(item.Full))
         {
-            DictationsLabel.Text = L.PanelCopied;
+            DictationsLabel.Text = L.PanelCopied.ToUpperInvariant();
             DictationList.SelectedItem = null;
         }
     }
@@ -114,6 +123,14 @@ public partial class QuickPanel : Window
         catch (Exception ex) { Logger.Log($"[Panel] Could not save tutor mode: {ex.Message}"); }
     }
 
+    private void OnClose(object sender, RoutedEventArgs e) => Hide();
+
+    private void OnQuit(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        _quit();
+    }
+
     private void OnSettings(object sender, RoutedEventArgs e)
     {
         Hide();
@@ -123,6 +140,6 @@ public partial class QuickPanel : Window
     protected override void OnDeactivated(EventArgs e)
     {
         base.OnDeactivated(e);
-        DictationsLabel.Text = L.PanelDictations;
+        DictationsLabel.Text = L.PanelDictations.ToUpperInvariant();
     }
 }
