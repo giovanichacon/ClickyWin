@@ -26,6 +26,16 @@ namespace ClickyWindows.Services;
 public sealed class AssemblyAIService : IAsyncDisposable
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(8);
+
+    // AssemblyAI caps concurrent sessions per account ("1008 Too many concurrent sessions"). Rapid presses
+    // open sockets faster than old ones close, so a new one waits briefly for a free slot, and a refused
+    // one is retried: audio keeps queuing meanwhile, nothing said is lost.
+    private const int MaxOpenSockets = 3;
+    private const int ConnectAttempts = 3;
+    private static readonly SemaphoreSlim OpenSockets = new(MaxOpenSockets, MaxOpenSockets);
+    private static readonly TimeSpan SlotWait = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
+    private int _holdsSlot;
     private static readonly byte[] ForceEndpointMessage = """{"type":"ForceEndpoint"}"""u8.ToArray();
     private static readonly byte[] TerminateMessage = """{"type":"Terminate"}"""u8.ToArray();
 
@@ -33,7 +43,7 @@ public sealed class AssemblyAIService : IAsyncDisposable
 
     private readonly string _apiKey;
     private readonly Uri _uri;
-    private readonly ClientWebSocket _ws = new();
+    private ClientWebSocket _ws = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Channel<Outgoing> _outbox =
         Channel.CreateUnbounded<Outgoing>(new UnboundedChannelOptions { SingleReader = true });
@@ -100,29 +110,113 @@ public sealed class AssemblyAIService : IAsyncDisposable
 
     private async Task ConnectCoreAsync()
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
-        timeout.CancelAfter(ConnectTimeout);
         try
         {
-            _ws.Options.SetRequestHeader("Authorization", _apiKey);
-            await _ws.ConnectAsync(_uri, timeout.Token).ConfigureAwait(false);
+            if (await OpenSockets.WaitAsync(SlotWait, _cts.Token).ConfigureAwait(false))
+                Volatile.Write(ref _holdsSlot, 1);
+            else
+                Logger.Log("[ASR] Older sessions still open, connecting anyway");
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            if (!_cts.IsCancellationRequested)
-                Fail(timeout.IsCancellationRequested ? "connection timed out" : ex.Message);
             _ended.TrySetResult();
             return;
         }
 
-        if (_cts.IsCancellationRequested)
+        var buffer = new byte[16 * 1024];
+        var message = new MemoryStream();
+        for (int attempt = 1; ; attempt++)
         {
-            _ended.TrySetResult();
+            if (attempt > 1) _ws = new ClientWebSocket();
+            var ws = _ws;
+            string? first;
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            timeout.CancelAfter(ConnectTimeout);
+            try
+            {
+                ws.Options.SetRequestHeader("Authorization", _apiKey);
+                await ws.ConnectAsync(_uri, timeout.Token).ConfigureAwait(false);
+                // The first message ("Begin" or "Error") says whether the session was accepted
+                first = await ReceiveTextAsync(ws, buffer, message, timeout.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (!_cts.IsCancellationRequested)
+                    Fail(timeout.IsCancellationRequested ? "connection timed out" : ex.Message);
+                EndConnection();
+                return;
+            }
+            if (_cts.IsCancellationRequested)
+            {
+                EndConnection();
+                return;
+            }
+
+            if (first != null && IsTooManySessions(first) && attempt < ConnectAttempts)
+            {
+                Logger.Log($"[ASR] Too many sessions open, retrying (attempt {attempt})");
+                ws.Abort();
+                ws.Dispose();
+                try { await Task.Delay(RetryDelay, _cts.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException)
+                {
+                    EndConnection();
+                    return;
+                }
+                continue;
+            }
+
+            if (first == null)
+            {
+                OnClosed(ws);
+                EndConnection();
+                return;
+            }
+            Logger.Log("[ASR] Connected");
+            HandleMessage(first);
+            _receiveLoop = ReceiveLoopAsync(_cts.Token);
+            _sendLoop = SendLoopAsync(_cts.Token);
             return;
         }
-        Logger.Log("[ASR] Connected");
-        _receiveLoop = ReceiveLoopAsync(_cts.Token);
-        _sendLoop = SendLoopAsync(_cts.Token);
+    }
+
+    private static bool IsTooManySessions(string json) =>
+        json.Contains("concurrent", StringComparison.OrdinalIgnoreCase);
+
+    private void EndConnection()
+    {
+        ReleaseSlot();
+        _ended.TrySetResult();
+    }
+
+    private void ReleaseSlot()
+    {
+        if (Interlocked.Exchange(ref _holdsSlot, 0) == 1) OpenSockets.Release();
+    }
+
+    /// <summary>One whole text message, or null when the server closed the socket.</summary>
+    private static async Task<string?> ReceiveTextAsync(ClientWebSocket ws, byte[] buffer, MemoryStream message,
+        CancellationToken ct)
+    {
+        message.SetLength(0);
+        while (true)
+        {
+            var result = await ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
+            if (result.MessageType == WebSocketMessageType.Close) return null;
+            message.Write(buffer, 0, result.Count);
+            if (result.EndOfMessage) return Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
+        }
+    }
+
+    private void OnClosed(ClientWebSocket ws)
+    {
+        var status = ws.CloseStatus;
+        if (status is not (WebSocketCloseStatus.NormalClosure or null))
+        {
+            if (Error == null) Fail($"closed {(int)status!} {ws.CloseStatusDescription}");
+        }
+        else
+            Logger.Log("[ASR] Closed normally");
     }
 
     /// <summary>
@@ -174,24 +268,13 @@ public sealed class AssemblyAIService : IAsyncDisposable
         {
             while (_ws.State == WebSocketState.Open)
             {
-                var result = await _ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
-                if (result.MessageType == WebSocketMessageType.Close)
+                var text = await ReceiveTextAsync(_ws, buffer, message, ct).ConfigureAwait(false);
+                if (text == null)
                 {
-                    var status = _ws.CloseStatus;
-                    if (status is not (WebSocketCloseStatus.NormalClosure or null))
-                    {
-                        if (Error == null) Fail($"closed {(int)status!} {_ws.CloseStatusDescription}");
-                    }
-                    else
-                        Logger.Log("[ASR] Closed normally");
+                    OnClosed(_ws);
                     break;
                 }
-
-                message.Write(buffer, 0, result.Count);
-                if (!result.EndOfMessage) continue;
-
-                HandleMessage(Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length));
-                message.SetLength(0);
+                HandleMessage(text);
             }
         }
         catch (OperationCanceledException) { }
@@ -201,7 +284,7 @@ public sealed class AssemblyAIService : IAsyncDisposable
         }
         finally
         {
-            _ended.TrySetResult();
+            EndConnection();
         }
     }
 
@@ -247,7 +330,13 @@ public sealed class AssemblyAIService : IAsyncDisposable
             case "Error":
                 // e.g. {"type":"Error","error_code":1008,"error":"Unauthorized Connection: Invalid API key"},
                 // sent right before the server closes the socket
-                Fail($"{node["error_code"]} {node["error"]?.GetValue<string>() ?? json}");
+                if (IsTooManySessions(json))
+                {
+                    Logger.Log($"[ASR] {json}");
+                    Fail(L.AsrBusy);
+                }
+                else
+                    Fail($"{node["error_code"]} {node["error"]?.GetValue<string>() ?? json}");
                 break;
 
             default:
@@ -293,6 +382,7 @@ public sealed class AssemblyAIService : IAsyncDisposable
             catch { _ws.Abort(); }
         }
         _ws.Dispose();
+        ReleaseSlot();
         // _cts is deliberately not disposed: a connect racing with dispose may still read its token
     }
 }

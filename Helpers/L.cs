@@ -85,6 +85,8 @@ public static partial class L
     // ── Overlay feedback ────────────────────────────────────────────────────
     public static string NoMic => T("No oigo tu micrófono", "I can't hear your microphone");
     public static string NoConnect => T("No pude conectarme", "I couldn't connect");
+    public static string AsrBusy => T("El dictado está ocupado, espera un segundo y prueba otra vez",
+        "Speech-to-text is busy, wait a second and try again");
     public static string NotHeard => T("No te escuché bien", "Sorry, I didn't catch that");
     public static string NoAnswer => T("No pude responder", "Sorry, I couldn't answer");
     public static string Refused => T("No puedo ayudar con eso", "I can't help with that");
