@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using Button = System.Windows.Controls.Button;
@@ -131,6 +132,14 @@ public partial class SetupWindow : Window
         TutorBox.IsChecked = settings.TutorMode;
         AutostartBox.Content = L.AutostartLabel;
         AutostartBox.IsChecked = Autostart.IsEnabled;
+        AgentModelLabel.Text = L.AgentModelLabel;
+        Fill(AgentModelBox, settings.EffectiveAgentModel,
+            ("claude-opus-5-5", "Opus 5.5  (~5–20¢)"), ("claude-haiku-5-5", "Haiku 5.5  (~1¢)"));
+        AgentCostLabel.Text = L.AgentCostLabel;
+        Fill(AgentCostBox, settings.EffectiveAgentCostCap.ToString("0.00", CultureInfo.InvariantCulture),
+            ("0.25", "$0.25"), ("0.50", "$0.50"), ("1.00", "$1.00"), ("2.00", "$2.00"));
+        AgentAlwaysBox.Content = L.AgentAlwaysAllowLabel;
+        AgentAlwaysBox.IsChecked = settings.AgentAlwaysAllow;
 
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _meterTimer.Tick += (_, _) =>
@@ -418,6 +427,9 @@ public partial class SetupWindow : Window
         _settings.AlwaysShowCursor = AlwaysCursorBox.IsChecked == true;
         _settings.CopyAnswers = CopyAnswersBox.IsChecked == true;
         _settings.TutorMode = TutorBox.IsChecked == true;
+        _settings.AgentModel = Selected(AgentModelBox);
+        _settings.AgentCostCap = double.TryParse(Selected(AgentCostBox), NumberStyles.Float, CultureInfo.InvariantCulture, out var cap) ? cap : 0;
+        _settings.AgentAlwaysAllow = AgentAlwaysBox.IsChecked == true;
 
         try
         {

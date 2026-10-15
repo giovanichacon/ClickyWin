@@ -71,7 +71,7 @@ is HeyClicky only (closed source; its agents now run on GPT-6 Luna/Sol).
 
 | HeyClicky feature | ClickyWin | Effort |
 |---|---|---|
-| Agents with computer use: click/type inside apps for you, in the background (no real pointer), asks Allow once / Always / Not now first, 5 s to cancel, Chromium task window reusing your profile | — | Large |
+| Agents with computer use: click/type inside apps for you, in the background (no real pointer), asks Allow once / Always / Not now first, 5 s to cancel, Chromium task window reusing your profile | Done 2026-10-15 (real pointer, primary monitor; no voice approval yet) | Large |
 | Connectors: Gmail/Drive/Sheets/Calendar, Notion, Linear, Spotify, custom MCP servers; sending email off by default | — | Medium–large |
 | Memory files: PROFILE.md (habits), VOLATILE.md (current project), 40 recent messages | Short session history only | Small |
 | Routines: scheduled repeat tasks, pause/run-now, stop after 3 failures | — | Medium (needs agents) |

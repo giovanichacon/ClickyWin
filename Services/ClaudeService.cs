@@ -49,8 +49,11 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     [GeneratedRegex(@"\[POINT:(\d+),(\d+):([^\]:]*)(?::screen(\d+))?\]", RegexOptions.IgnoreCase)]
     private static partial Regex PointTagRegex();
 
-    [GeneratedRegex(@"\s*\[POINT:[^\]]*\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\s*\[(?:POINT|DO):[^\]]*\]", RegexOptions.IgnoreCase)]
     private static partial Regex AnyPointTag();
+
+    [GeneratedRegex(@"\[DO:\s*([^\]]+)\]", RegexOptions.IgnoreCase)]
+    private static partial Regex DoTagRegex();
 
     private readonly object _clientLock = new();
     private AnthropicClient? _client;
@@ -307,6 +310,10 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         return points;
     }
 
-    /// <summary>Removes [POINT:...] tags (including [POINT:none]) before speaking or storing text.</summary>
+    /// <summary>Removes [POINT:...] and [DO:...] tags before speaking or storing text.</summary>
     public static string StripPointTags(string text) => AnyPointTag().Replace(text, "").Trim();
+
+    /// <summary>The task in a [DO: task] tag (the user asked Clicky to act on the computer), or null.</summary>
+    public static string? ParseDoTask(string text) =>
+        DoTagRegex().Match(text) is { Success: true } m && m.Groups[1].Value.Trim() is { Length: > 0 } task ? task : null;
 }

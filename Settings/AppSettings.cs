@@ -67,8 +67,17 @@ public sealed class AppSettings
     public double VoiceSpeed { get; set; } = 1.0;
     /// <summary>After an answer, keep watching the screen and guide the next step.</summary>
     public bool TutorMode { get; set; }
+    /// <summary>Computer use model; empty = appsettings.json Agent.Model (Opus 5.5).</summary>
+    public string AgentModel { get; set; } = "";
+    /// <summary>Skip the Allow card for new tasks (the countdown and irreversible-step questions still apply).</summary>
+    public bool AgentAlwaysAllow { get; set; }
+    /// <summary>USD per task; 0 = appsettings.json Agent.CostCap.</summary>
+    public double AgentCostCap { get; set; }
 
     // ── Effective values ────────────────────────────────────────────────────
+    [JsonIgnore] public string EffectiveAgentModel =>
+        string.IsNullOrWhiteSpace(AgentModel) ? Config.Agent.Model : AgentModel;
+    [JsonIgnore] public double EffectiveAgentCostCap => AgentCostCap > 0 ? AgentCostCap : Config.Agent.CostCap;
     [JsonIgnore] public string EffectivePrimaryModel =>
         string.IsNullOrWhiteSpace(PrimaryModel) ? Config.Models.Primary : PrimaryModel;
 

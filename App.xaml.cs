@@ -22,6 +22,7 @@ public partial class App
     private DictationManager? _dictation;
     private KeyboardHookService? _keys;
     private OverlayWindow? _overlay;
+    private AgentController? _agent;
     private MainWindow? _mainWindow;
     private AppSettings _settings = new();
     private SetupWindow? _setupWindow;
@@ -85,6 +86,11 @@ public partial class App
         _companion.StateChanged += state => Dispatcher.InvokeAsync(() => _panel.SetState(state));
         _dictation.StateChanged += state => Dispatcher.InvokeAsync(() => _panel.SetState(state));
         _companion.AnswerReady += OnAnswerReady;
+
+        // Computer use: "do this for me" → Allow card → countdown → Clicky clicks and types
+        _agent = new AgentController(_settings, _companion, new AgentCard());
+        _companion.DoRequested += (task, request) => Dispatcher.InvokeAsync(() => _ = _agent.RunAsync(task, request));
+        _agent.Finished += OnAnswerReady;
         _dictation.Inserted += _ => Dispatcher.InvokeAsync(() => _panel.SetDictations(_dictation.Recent));
 
         _keys = new KeyboardHookService();
@@ -101,7 +107,10 @@ public partial class App
         SetupTrayIcon();
 
         Logger.Log($"Clicky ready. Ask: {_askText} | Dictate: {_dictateText} | Write: {_writeText} | Prompt: {_promptText}");
-        if (e.Args.Contains("--panel"))
+        int doArg = Array.IndexOf(e.Args, "--do");
+        if (doArg >= 0 && doArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
+            _ = _agent.RunAsync(e.Args[doArg + 1], e.Args[doArg + 1]); // testing: a task without the hotkey
+        else if (e.Args.Contains("--panel"))
             _panel.ShowNearTray();
         else if (_settings.HasRequiredKeys && !e.Args.Contains("--settings"))
             ShowBalloon(L.Ready(_askText), ToolTipIcon.Info);
@@ -301,6 +310,7 @@ public partial class App
     {
         try
         {
+            _agent?.Stop();
             _trayIcon?.Dispose();
             _keys?.Dispose();
             var cleanup = Task.WhenAll(

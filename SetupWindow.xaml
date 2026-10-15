@@ -201,6 +201,24 @@
                     <CheckBox x:Name="CopyAnswersBox"/>
                     <CheckBox x:Name="TutorBox"/>
                     <CheckBox x:Name="AutostartBox"/>
+
+                    <!-- Computer use -->
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock x:Name="AgentModelLabel" Style="{StaticResource Section}"/>
+                            <ComboBox x:Name="AgentModelBox"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock x:Name="AgentCostLabel" Style="{StaticResource Section}"/>
+                            <ComboBox x:Name="AgentCostBox"/>
+                        </StackPanel>
+                    </Grid>
+                    <CheckBox x:Name="AgentAlwaysBox"/>
                 </StackPanel>
             </TabItem>
         </TabControl>

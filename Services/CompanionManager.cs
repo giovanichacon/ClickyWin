@@ -40,6 +40,8 @@ public sealed class CompanionManager : IAsyncDisposable
     public event Action? TranscriptConfirmed;
     /// <summary>Question and spoken answer (for the tray panel and "copy answers").</summary>
     public event Action<string, string>? AnswerReady;
+    /// <summary>The user asked Clicky to do something on the computer: (task, what they said).</summary>
+    public event Action<string, string>? DoRequested;
 
     private CancellationTokenSource? _tutorCts;
 
@@ -268,6 +270,13 @@ public sealed class CompanionManager : IAsyncDisposable
 
         AnswerReady?.Invoke(transcript, fullText);
 
+        if (ClaudeService.ParseDoTask(reply.ToString()) is { } task && !s.Token.IsCancellationRequested)
+        {
+            Logger.Log($"[Claude] DO \"{task}\"");
+            DoRequested?.Invoke(task, transcript);
+            return;
+        }
+
         // Tutor mode: a reply that pointed somewhere is a step; keep watching for the next one
         if (pointed && _settings.TutorMode && !s.Token.IsCancellationRequested)
             StartTutor(transcript);
@@ -418,6 +427,31 @@ public sealed class CompanionManager : IAsyncDisposable
     {
         if (!owner.Token.IsCancellationRequested)
             FeedbackReceived?.Invoke(message);
+    }
+
+    // ── Computer use ────────────────────────────────────────────────────────
+
+    /// <summary>Shows the cursor while Clicky works (Speaking) and hides it after (Idle); never overrides a question.</summary>
+    public void SetAgentState(AppState state) => SetTutorState(state);
+
+    /// <summary>Speaks a short line (computer-use result) unless the user is asking something.</summary>
+    public async Task SayAsync(string text, CancellationToken ct = default)
+    {
+        if (text.Length == 0) return;
+        try
+        {
+            await _tts.SpeakAsync(text, () => SetTutorState(AppState.Speaking), ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.Error($"TTS failed: {ex.Message}");
+            FeedbackReceived?.Invoke(text);
+        }
+        finally
+        {
+            SetTutorState(AppState.Idle);
+        }
     }
 
     public void StopSpeaking()

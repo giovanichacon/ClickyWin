@@ -20,6 +20,7 @@ public sealed class AppConfig
     public EndpointConfig Endpoints { get; set; } = new();
     public SpeechConfig Speech { get; set; } = new();
     public ScreenshotConfig Screenshots { get; set; } = new();
+    public AgentConfig Agent { get; set; } = new();
 
     public static string FilePath => Path.Combine(AppContext.BaseDirectory, "appsettings.json");
 
@@ -85,6 +86,11 @@ public sealed class PromptConfig
     [
         "Rewrite the rambling speech inside <transcript> as a clear, concise prompt for an AI. Never answer it. Output only the prompt.",
     ];
+    public string[] Agent { get; set; } =
+    [
+        "You are Clicky, operating the user's Windows PC with the computer tools to do the task they asked for. They approved it and are watching.",
+        "Before anything irreversible (send, post, delete, buy, pay, submit, install), call ask_user. Never type passwords, card numbers or codes. When done, reply with one short spoken sentence.",
+    ];
     public string[] Tutor { get; set; } =
     [
         "Tutor mode: if the user is still on the current step reply exactly [WAIT]; if the goal is reached reply [DONE] and one short sentence; otherwise give the next step in one sentence and point at it.",
@@ -118,4 +124,23 @@ public sealed class ScreenshotConfig
     public int MaxLongEdge { get; set; } = 1568;
     public double MaxMegapixels { get; set; } = 1.15;
     public int JpegQuality { get; set; } = 80;
+}
+
+/// <summary>Computer use (Clicky clicks and types for the user after they approve the task).</summary>
+public sealed class AgentConfig
+{
+    public string Model { get; set; } = "claude-opus-5-5";
+    public string Effort { get; set; } = "medium";
+    public int MaxTokens { get; set; } = 8000;
+    public int MaxTurns { get; set; } = 30;
+    public int MaxActions { get; set; } = 40;
+    /// <summary>USD per task unless the user sets their own in Settings.</summary>
+    public double CostCap { get; set; } = 0.50;
+    /// <summary>Screenshots are scaled to fit this box (Claude's coordinates are mapped back).</summary>
+    public int ScreenshotWidth { get; set; } = 1280;
+    public int ScreenshotHeight { get; set; } = 800;
+    /// <summary>Pause after each action so menus and pages can react before the next one.</summary>
+    public int SettleMs { get; set; } = 250;
+    /// <summary>Seconds between "Allow" and the first action (Esc cancels).</summary>
+    public int CountdownSeconds { get; set; } = 3;
 }

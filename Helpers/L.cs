@@ -42,6 +42,41 @@ public static partial class L
 
     private static string T(string es, string en) => Es ? es : en;
 
+    /// <summary>For prompts: the language replies should use.</summary>
+    public static string CurrentLanguageName => Es ? "Spanish" : "English";
+
+    // ── Computer use ────────────────────────────────────────────────────────
+    public static string AgentDone => T("Listo.", "Done.");
+    public static string AgentStopped => T("Me detuve.", "Stopped.");
+    public static string AgentFailed => T("No pude terminar la tarea.", "I couldn't finish the task.");
+    public static string AgentRefused => T("No puedo hacer eso.", "I can't do that one.");
+    public static string AgentLimit => T("Llegué al límite de pasos y me detuve.", "I hit the step limit and stopped.");
+    public static string AgentCostLimit => T("Llegué al límite de costo de la tarea y me detuve.", "I hit the cost limit for this task and stopped.");
+    public static string AgentNotNow => T("De acuerdo, no lo hago.", "Okay, I won't.");
+    public static string AgentCardTitle => T("Clicky quiere hacer esto por ti", "Clicky wants to do this for you");
+    public static string AgentAllowOnce => T("Permitir una vez", "Allow once");
+    public static string AgentAlwaysAllow => T("Permitir siempre", "Always allow");
+    public static string AgentNotNowButton => T("Ahora no", "Not now");
+    public static string AgentAskTitle => T("Clicky necesita tu confirmación", "Clicky needs your OK");
+    public static string AgentYes => T("Sí, hazlo", "Yes, do it");
+    public static string AgentNo => T("No", "No");
+    public static string AgentStarting(int s) => T($"Empiezo en {s}… Esc para cancelar", $"Starting in {s}… Esc to cancel");
+    public static string AgentWorkingHint => T("Mueve el ratón o pulsa Esc para detener", "Move your mouse or press Esc to stop");
+    public static string AgentStep(string action) => action switch
+    {
+        "screenshot" or "zoom" => T("Mirando la pantalla…", "Looking at the screen…"),
+        "type" => T("Escribiendo…", "Typing…"),
+        "key" or "hold_key" => T("Pulsando teclas…", "Pressing keys…"),
+        "scroll" => T("Desplazando…", "Scrolling…"),
+        "wait" => T("Esperando…", "Waiting…"),
+        "left_click_drag" => T("Arrastrando…", "Dragging…"),
+        "mouse_move" or "cursor_position" => T("Moviendo el ratón…", "Moving the mouse…"),
+        _ => T("Haciendo clic…", "Clicking…"),
+    };
+    public static string AgentAlwaysAllowLabel => T("Permitir siempre que Clicky haga tareas (sin preguntar antes de empezar)", "Always let Clicky do tasks (don't ask before starting)");
+    public static string AgentModelLabel => T("Modelo para hacer tareas", "Model for doing tasks");
+    public static string AgentCostLabel => T("Costo máximo por tarea (USD)", "Max cost per task (USD)");
+
     // ── Overlay feedback ────────────────────────────────────────────────────
     public static string NoMic => T("No oigo tu micrófono", "I can't hear your microphone");
     public static string NoConnect => T("No pude conectarme", "I couldn't connect");
