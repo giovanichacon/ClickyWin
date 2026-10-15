@@ -1,5 +1,8 @@
 # Builds the Clicky installer: publishes the self-contained app (publish-dist\) and compiles
 # installer\Clicky.iss into dist\Clicky-<version>-Setup.exe. Version comes from ClickyWindows.csproj.
+# -Install also upgrades the copy installed on this PC in place (same AppId): settings, keys,
+# desktop icon and autostart are kept (Inno reuses the previous tasks), and Clicky is restarted.
+param([switch]$Install)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -18,3 +21,11 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 & $iscc /Q "/DAppVersion=$version" "installer\Clicky.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 Get-Item "dist\Clicky-$version-Setup.exe" | Select-Object Name, @{n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }
+
+if ($Install) {
+    $setup = Resolve-Path "dist\Clicky-$version-Setup.exe"
+    $p = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru -Wait
+    if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
+    Start-Process "$env:LOCALAPPDATA\Programs\Clicky\ClickyWindows.exe"
+    "Installed $version and restarted Clicky"
+}
