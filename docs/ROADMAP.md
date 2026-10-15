@@ -63,3 +63,20 @@ D4 Polish — auto-learn dictionary (watch the field via UIA for 20 s after inse
 
 Also queued: P2 overlay per monitor, P3 tray quick panel + copy answer + start with Windows +
 voice speed, P4 ElevenLabs streaming TTS, P5 release build (R2R, RAM/startup).
+
+## 4. Gaps vs HeyClicky v1.0.53 (checked 2026-10-15, heyclicky.com/changelog)
+
+The open-source mac Clicky (what ClickyWin ports) only points; it never clicks. "Doing things for you"
+is HeyClicky only (closed source; its agents now run on GPT-6 Luna/Sol).
+
+| HeyClicky feature | ClickyWin | Effort |
+|---|---|---|
+| Agents with computer use: click/type inside apps for you, in the background (no real pointer), asks Allow once / Always / Not now first, 5 s to cancel, Chromium task window reusing your profile | — | Large |
+| Connectors: Gmail/Drive/Sheets/Calendar, Notion, Linear, Spotify, custom MCP servers; sending email off by default | — | Medium–large |
+| Memory files: PROFILE.md (habits), VOLATILE.md (current project), 40 recent messages | Short session history only | Small |
+| Routines: scheduled repeat tasks, pause/run-now, stop after 3 failures | — | Medium (needs agents) |
+| Realtime voice: barge-in, always-on (triple Ctrl, headphones), echo cancellation | Push-to-talk only | Medium |
+| Home chat window: history, multiple named "Clickys", drag files in, PDF/web page understanding | Tray panel: last answer, dictations | Medium |
+| Skills library (~100 community skills, custom skills) | — | Medium |
+| In-app auto-update | Installer upgrade in place (`installer\build.ps1 -Install`) | Small–medium (needs a release host) |
+| Walkthroughs up to 15 steps | Tutor mode | — |
