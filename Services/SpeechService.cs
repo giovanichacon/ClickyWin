@@ -16,10 +16,7 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
     private readonly WindowsVoiceService _windows = new(() => settings.WindowsVoice, () => settings.EffectiveVoiceSpeed);
     private int _elevenLabsErrorShown;
 
-    /// <summary>
-    /// Each sentence as it is handed to the voice (captions). shortcut: with ElevenLabs it fires when the
-    /// sentence is requested, up to one sentence ahead of the audio; sync to playback if that shows.
-    /// </summary>
+    /// <summary>The reply's words heard so far, revealed as the voice says them (captions).</summary>
     public event Action<string>? Caption;
 
     private static int _talking;
@@ -68,13 +65,16 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
     private async Task SpeakCoreAsync(ChannelReader<string> sentences, Action OnStart, CancellationToken ct)
     {
         bool useElevenLabs = settings.UseElevenLabs && !string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey) && !_elevenLabsOutOfCredits;
-        using var playback = useElevenLabs ? _elevenLabs.BeginPlayback(OnStart) : null;
+        void ShowCaption(string heard)
+        {
+            if (!ct.IsCancellationRequested) Caption?.Invoke(heard);
+        }
+        using var playback = useElevenLabs ? _elevenLabs.BeginPlayback(OnStart, ShowCaption) : null;
         var spoken = new StringBuilder();
 
         await foreach (var sentence in sentences.ReadAllAsync(ct).ConfigureAwait(false))
         {
             if (string.IsNullOrWhiteSpace(sentence)) continue;
-            Caption?.Invoke(sentence);
 
             if (playback != null && useElevenLabs)
             {
@@ -97,6 +97,7 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
                 }
             }
 
+            ShowCaption((spoken + sentence).Trim()); // shortcut: whole sentence at once until the SAPI word reveal
             await _windows.SpeakAsync(sentence, OnStart, ct).ConfigureAwait(false);
             spoken.Append(sentence).Append(' ');
         }

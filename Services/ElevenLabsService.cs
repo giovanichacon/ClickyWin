@@ -25,13 +25,15 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
     private Playback? _current;
 
     /// <summary>Starts an audio stream; append sentences in order, then <see cref="Playback.DrainAsync"/>.</summary>
-    public Playback BeginPlayback(Action? onPlaybackStarting) =>
+    /// <param name="onCaption">Text heard so far (word by word, synced to playback); null = no captions.</param>
+    public Playback BeginPlayback(Action? onPlaybackStarting, Action<string>? onCaption = null) =>
         BeginPlayback(_settings.ElevenLabsApiKey, _settings.EffectiveElevenLabsVoiceId, _settings.EffectiveVoiceSpeed,
-            _settings.SpeakerDeviceId, onPlaybackStarting);
+            _settings.SpeakerDeviceId, onPlaybackStarting, onCaption);
 
-    private Playback BeginPlayback(string apiKey, string voiceId, double speed, string deviceId, Action? onPlaybackStarting)
+    private Playback BeginPlayback(string apiKey, string voiceId, double speed, string deviceId, Action? onPlaybackStarting,
+        Action<string>? onCaption = null)
     {
-        var playback = new Playback(this, apiKey, voiceId, speed, deviceId, onPlaybackStarting);
+        var playback = new Playback(this, apiKey, voiceId, speed, deviceId, onPlaybackStarting, onCaption);
         Interlocked.Exchange(ref _current, playback)?.Stop();
         return playback;
     }
@@ -64,8 +66,21 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
         private readonly WasapiOut _player;
         private bool _playing, _stopped;
 
-        internal Playback(ElevenLabsService owner, string apiKey, string voiceId, double speed, string deviceId, Action? onPlaybackStarting)
+        // Captions: each sentence's byte range in the stream; heard position = appended - still buffered - device latency
+        private sealed class Segment(long start, string text) { public readonly long Start = start; public readonly string Text = text; public long End = -1; }
+        private const int BytesPerSecond = 48000; // pcm_24000, 16-bit mono
+        private const int LatencyBytes = BytesPerSecond / 10; // WasapiOut 100 ms
+        private const int BytesPerCharGuess = BytesPerSecond * 65 / 1000; // ~15 chars/s, only until a sentence finishes downloading
+        private readonly Action<string>? _onCaption;
+        private readonly List<Segment> _segments = [];
+        private long _appended;
+        private System.Threading.Timer? _captionTimer;
+        private string _lastCaption = "";
+
+        internal Playback(ElevenLabsService owner, string apiKey, string voiceId, double speed, string deviceId, Action? onPlaybackStarting,
+            Action<string>? onCaption)
         {
+            _onCaption = onCaption;
             _player = AudioOutput.Open(deviceId);
             _owner = owner;
             _apiKey = apiKey.Trim();
@@ -108,6 +123,14 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
                 throw new HttpRequestException($"ElevenLabs {(int)response.StatusCode}: {ErrorMessage(err)}");
             }
 
+            var segment = new Segment(Interlocked.Read(ref _appended), text);
+            lock (_segments) _segments.Add(segment);
+            try { await ReadAudioAsync(response, ct).ConfigureAwait(false); }
+            finally { Interlocked.Exchange(ref segment.End, Interlocked.Read(ref _appended)); }
+        }
+
+        private async Task ReadAudioAsync(HttpResponseMessage response, CancellationToken ct)
+        {
             await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             var chunk = new byte[8192];
             int carry = 0; // a 16-bit sample can be split across two reads
@@ -117,6 +140,7 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
                 int total = carry + read;
                 int even = total & ~1;
                 _buffer.AddSamples(chunk, 0, even);
+                Interlocked.Add(ref _appended, even);
                 carry = total - even;
                 if (carry == 1) chunk[0] = chunk[even];
 
@@ -134,6 +158,40 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
                 await Task.Delay(30, ct).ConfigureAwait(false);
             if (_playing && !_stopped)
                 await Task.Delay(150, ct).ConfigureAwait(false); // the device's own buffer
+            RevealCaption(all: true);
+        }
+
+        /// <summary>Sends the words heard so far: a sentence starts at its first byte, its words by character share.</summary>
+        private void RevealCaption(bool all = false)
+        {
+            if (_onCaption == null) return;
+            lock (_segments) // Stop takes this lock too, so no caption fires after Stop returns
+            {
+                if (_stopped) return;
+                long appended = Interlocked.Read(ref _appended);
+                long heard = all ? long.MaxValue : appended - _buffer.BufferedBytes - LatencyBytes;
+                var text = new StringBuilder();
+                foreach (var seg in _segments)
+                {
+                    if (heard < seg.Start) break;
+                    long segEnd = Interlocked.Read(ref seg.End);
+                    long end = segEnd >= 0 ? segEnd : Math.Max(appended, seg.Start + (long)seg.Text.Length * BytesPerCharGuess);
+                    text.Append(StartedWords(seg.Text, (double)(heard - seg.Start) / Math.Max(1, end - seg.Start))).Append(' ');
+                }
+                var caption = text.ToString().TrimEnd();
+                if (caption.Length == 0 || caption == _lastCaption) return;
+                _lastCaption = caption;
+                _onCaption(caption);
+            }
+        }
+
+        /// <summary>The words of <paramref name="text"/> that have started by <paramref name="fraction"/> of its duration.</summary>
+        internal static string StartedWords(string text, double fraction)
+        {
+            if (fraction >= 1) return text;
+            int end = (int)(Math.Max(0, fraction) * text.Length);
+            while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
+            return text[..end].TrimEnd();
         }
 
         private void StartPlaying()
@@ -141,11 +199,13 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
             _playing = true;
             _onPlaybackStarting?.Invoke();
             _player.Play();
+            if (_onCaption != null) _captionTimer = new System.Threading.Timer(_ => RevealCaption(), null, 0, 50);
         }
 
         public void Stop()
         {
-            _stopped = true;
+            lock (_segments) _stopped = true;
+            _captionTimer?.Dispose();
             try { _player.Stop(); }
             catch (Exception ex) { Logger.Log($"[TTS] Stop error: {ex.Message}"); }
         }
