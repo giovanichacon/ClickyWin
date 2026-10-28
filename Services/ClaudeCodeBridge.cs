@@ -58,6 +58,19 @@ public sealed class ClaudeCodeBridge
         catch (UnauthorizedAccessException) { return WorkspaceRoot; }
     }
 
+    /// <summary>claude.exe on the user's PATH (the registry copy: apps started at login may have an older one), else the native installer's default.</summary>
+    // shortcut: npm installs (claude.cmd) are not found; upgrade if a user has only that
+    private static string? FindCli()
+    {
+        var path = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) + ";" +
+                   Environment.GetEnvironmentVariable("PATH");
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return path.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Append(Path.Combine(home, ".local", "bin"))
+            .Select(d => Path.Combine(Environment.ExpandEnvironmentVariables(d), "claude.exe"))
+            .FirstOrDefault(File.Exists);
+    }
+
     private static string Squash(string s) => Regex.Replace(s.ToLowerInvariant(), "[^a-z0-9]", "");
 
     public async Task<Result> RunAsync(string task, string? folder, CancellationToken ct)
@@ -65,7 +78,18 @@ public sealed class ClaudeCodeBridge
         folder ??= FolderFor(task);
         bool resume = _sessionId != null && _sessionFolder == folder && DateTime.UtcNow - _lastRun < ResumeWindow;
 
-        var psi = new ProcessStartInfo("claude")
+        if (!Directory.Exists(folder))
+        {
+            Logger.Log($"[Engineer] Folder not found: {folder}");
+            return new Result(false, L.AgentFailed, folder, 0);
+        }
+        var exe = FindCli();
+        if (exe == null)
+        {
+            Logger.Log("[Engineer] Claude Code CLI (claude.exe) not found");
+            return new Result(false, L.EngineerNoCli, folder, 0);
+        }
+        var psi = new ProcessStartInfo(exe)
         {
             WorkingDirectory = folder,
             UseShellExecute = false,
@@ -79,16 +103,14 @@ public sealed class ClaudeCodeBridge
             psi.ArgumentList.Add(a);
         foreach (var t in AllowedTools) psi.ArgumentList.Add(t);
         if (resume) { psi.ArgumentList.Add("--resume"); psi.ArgumentList.Add(_sessionId!); }
-        psi.Environment.Remove("ANTHROPIC_API_KEY"); // use the plan login, never an API key that happens to be set
+        // The CLI uses its own plan login: drop any API key or host-session auth Clicky inherited (e.g. started from Claude Desktop)
+        foreach (var name in psi.Environment.Keys.Where(k => k.StartsWith("ANTHROPIC_", StringComparison.OrdinalIgnoreCase) ||
+                                                              k.StartsWith("CLAUDE", StringComparison.OrdinalIgnoreCase)).ToList())
+            psi.Environment.Remove(name);
 
         Logger.Log($"[Engineer] claude -p in {folder}{(resume ? " (resume)" : "")}");
         using var proc = new Process { StartInfo = psi };
-        try { proc.Start(); }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            Logger.Log("[Engineer] Claude Code CLI not found on PATH");
-            return new Result(false, L.EngineerNoCli, folder, 0);
-        }
+        proc.Start();
         proc.StandardInput.Close();
         _ = proc.StandardError.ReadToEndAsync(); // drain; never logged (may echo environment details)
         using var kill = ct.Register(() => { try { proc.Kill(entireProcessTree: true); } catch { } });
@@ -127,6 +149,8 @@ public sealed class ClaudeCodeBridge
 
         if (ct.IsCancellationRequested) return new Result(false, L.AgentStopped, folder, cost);
         Logger.Log($"[Engineer] Finished ok={ok} exit={proc.ExitCode} cost≈${cost:0.000} (plan usage, estimate)");
+        if (!ok && final?.Contains("authenticate", StringComparison.OrdinalIgnoreCase) == true)
+            return new Result(false, L.EngineerLogin, folder, cost);
         return new Result(ok, string.IsNullOrWhiteSpace(final) ? L.AgentFailed : final.Trim(), folder, cost);
     }
 

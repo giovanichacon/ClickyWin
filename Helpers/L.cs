@@ -75,6 +75,7 @@ public static partial class L
     };
     // ── Engineer (Claude Code CLI) ──────────────────────────────────────────
     public static string EngineerNoCli => T("No encuentro Claude Code instalado en este equipo.", "I can't find Claude Code installed on this PC.");
+    public static string EngineerLogin => T("Claude Code necesita que vuelvas a iniciar sesión: abre una terminal, escribe claude y luego /login.", "Claude Code needs you to sign in again: open a terminal, type claude, then /login.");
     public static string EngineerStarting(string folder) => T($"Le paso esto a Claude Code, en {folder}.", $"Handing this to Claude Code, in {folder}.");
     public static string EngineerWorkingHint => T("Claude Code está trabajando · di \"para\" para detener", "Claude Code is working · say \"stop\" to stop");
     public static string EngineerEditing(string file) => T($"Ahora edito {file}.", $"Editing {file} now.");
