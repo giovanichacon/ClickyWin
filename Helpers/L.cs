@@ -73,6 +73,20 @@ public static partial class L
         "mouse_move" or "cursor_position" => T("Moviendo el ratón…", "Moving the mouse…"),
         _ => T("Haciendo clic…", "Clicking…"),
     };
+    // ── Engineer (Claude Code CLI) ──────────────────────────────────────────
+    public static string EngineerNoCli => T("No encuentro Claude Code instalado en este equipo.", "I can't find Claude Code installed on this PC.");
+    public static string EngineerStarting(string folder) => T($"Le paso esto a Claude Code, en {folder}.", $"Handing this to Claude Code, in {folder}.");
+    public static string EngineerWorkingHint => T("Claude Code está trabajando · di \"para\" para detener", "Claude Code is working · say \"stop\" to stop");
+    public static string EngineerEditing(string file) => T($"Ahora edito {file}.", $"Editing {file} now.");
+    public static string EngineerBuilding => T("Compilando.", "Building.");
+    public static string EngineerStep(string tool, string file, string cmd) => tool switch
+    {
+        "Read" => T($"Leyendo {file}…", $"Reading {file}…"),
+        "Edit" or "Write" => T($"Editando {file}…", $"Editing {file}…"),
+        "Glob" or "Grep" => T("Buscando en el código…", "Searching the code…"),
+        "Bash" => $"> {(cmd.Length > 80 ? cmd[..80] + "…" : cmd)}",
+        _ => $"{tool}…",
+    };
     public static (string Title, string Desc) AgentAlwaysAllowLabel => (T("Permitir siempre las tareas", "Always allow tasks"), T("Clicky empieza las tareas sin preguntar antes.", "Clicky starts tasks without asking first."));
     public static string SessionTitle => T("Clicky te escucha: di qué hacer", "Clicky is listening: say what to do");
     public static string SessionHint => T("Di \"para\" para detener una tarea · \"terminar sesión\" o Esc para salir", "Say \"stop\" to stop a task · \"end session\" or Esc to finish");
