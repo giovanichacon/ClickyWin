@@ -70,7 +70,10 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
                 return;
             }
 
-            var result = await WorkAsync(task, cts).ConfigureAwait(false);
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var result = await WorkAsync(job, cts).ConfigureAwait(false);
+            Logger.Log($"[Rank] {job.Rank}{(job.Long ? " long" : "")} → {result.Outcome}, {result.Actions} action(s), " +
+                       $"≈ ${result.Cost:F4}, {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds:F1} s");
             card.Close(result.Summary);
             Finished?.Invoke(request, result.Summary);
             companion.NoteTaskResult($"(Task {result.Outcome}: {result.Summary})"); // so follow-ups know what happened
@@ -92,8 +95,9 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
         }
     }
 
-    private async Task<AgentResult> WorkAsync(string task, CancellationTokenSource cts)
+    private async Task<AgentResult> WorkAsync(DoTask job, CancellationTokenSource cts)
     {
+        var task = job.Task;
         var agent = new ComputerAgent(settings);
         agent.Progress += step => card.ShowWorking(task, step);
         agent.AskUser = async (question, options, ct) =>
@@ -122,7 +126,7 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
         _watcher.Armed = true;
         try
         {
-            return await Task.Run(() => agent.RunAsync(task, cts.Token)).ConfigureAwait(false);
+            return await Task.Run(() => RouteAsync(job, agent, cts.Token)).ConfigureAwait(false);
         }
         finally
         {
@@ -131,5 +135,43 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
             _watcher.Stop();
             companion.SetAgentState(AppState.Idle);
         }
+    }
+
+    /// <summary>The cheapest worker that can do the job; every rank falls back to the worker.</summary>
+    private async Task<AgentResult> RouteAsync(DoTask job, ComputerAgent agent, CancellationToken ct)
+    {
+        switch (job.Rank)
+        {
+            case "runner":
+                if (Runner.TryStart(job.Task, out var followUp))
+                {
+                    if (followUp == null) return new AgentResult(AgentOutcome.Done, L.AgentDone, 0, 1);
+                    await Task.Delay(2500, ct).ConfigureAwait(false); // let the page load before the first screenshot
+                    return await agent.RunAsync(followUp, ct, model: settings.EffectivePrimaryModel).ConfigureAwait(false);
+                }
+                Logger.Log("[Rank] runner: no shortcut fits → worker");
+                break;
+            case "teacher":
+                if (await TeachAsync(job, ct).ConfigureAwait(false) is { } taught) return taught;
+                break;
+            case "engineer":
+                if (await EngineerAsync(job, ct).ConfigureAwait(false) is { } built) return built;
+                break;
+        }
+        return await agent.RunAsync(job.Task, ct, planFirst: job.Long).ConfigureAwait(false);
+    }
+
+    /// <summary>Teacher rank hook (P1 Teacher mode plugs in here). Null = not handled, the worker does the task.</summary>
+    private static Task<AgentResult?> TeachAsync(DoTask job, CancellationToken ct)
+    {
+        Logger.Log("[Rank] teacher: not built yet → worker");
+        return Task.FromResult<AgentResult?>(null);
+    }
+
+    /// <summary>Engineer rank hook (P3 Claude Code bridge plugs in here). Null = not handled, the worker does the task.</summary>
+    private static Task<AgentResult?> EngineerAsync(DoTask job, CancellationToken ct)
+    {
+        Logger.Log("[Rank] engineer: not built yet → worker");
+        return Task.FromResult<AgentResult?>(null);
     }
 }
