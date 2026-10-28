@@ -24,13 +24,16 @@ public partial class QuickPanel : Window
 
     public sealed record DictationItem(string Text, string Meta, string Full);
 
+    /// <summary>When focus loss last closed the panel (a click on the notch deactivates it first).</summary>
+    public DateTime HiddenAt { get; private set; }
+
     public QuickPanel(AppSettings settings, Action openSettings, Action quit)
     {
         InitializeComponent();
         _settings = settings;
         _openSettings = openSettings;
         _quit = quit;
-        Deactivated += (_, _) => Hide();
+        Deactivated += (_, _) => { HiddenAt = DateTime.UtcNow; Hide(); };
         Localize();
         SetState(AppState.Idle);
         SetAnswer("", "");

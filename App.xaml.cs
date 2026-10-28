@@ -319,7 +319,7 @@ public partial class App
     {
         if (_panel == null || _notch == null) return;
         if (_panel.IsVisible) _panel.Hide();
-        else
+        else if ((DateTime.UtcNow - _panel.HiddenAt).TotalMilliseconds > 400)
         {
             _panel.SetDictations(_dictation?.Recent ?? []);
             _panel.ShowBelow(_notch.Anchor);
