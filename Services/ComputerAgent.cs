@@ -95,6 +95,7 @@ public sealed class ComputerAgent(AppSettings settings)
                     "(at most 10 steps) with the apps, places and checks it needs. No preamble.",
                     $"Task: {task}\n\nThe current screen:", first, ct).ConfigureAwait(false);
                 cost += planCost;
+                Logger.Log($"[Agent] Plan: \"{plan}\"");
                 if (plan.Length > 0) intro += $"\n\nA planner wrote this plan; follow it, adapt when the screen differs:\n{plan}";
             }
             catch (OperationCanceledException) { throw; }
