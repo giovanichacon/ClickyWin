@@ -73,6 +73,40 @@ internal static class InputDriver
         }
     }
 
+    /// <summary>Moves the cursor to (x, y) along an eased path (slow in, slow out) so a watching user can follow it.</summary>
+    public static async Task GlideAsync(int x, int y, int ms, CancellationToken ct)
+    {
+        Win32.GetCursorPos(out var from);
+        int steps = Math.Max(1, ms / 15);
+        for (int i = 1; i <= steps; i++)
+        {
+            double t = (double)i / steps, e = t * t * (3 - 2 * t);
+            MoveTo((int)Math.Round(from.X + (x - from.X) * e), (int)Math.Round(from.Y + (y - from.Y) * e));
+            await Task.Delay(15, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>A slow drag with any button and held modifiers (Blender: middle = orbit, Shift+middle = pan).</summary>
+    public static async Task<bool> GlideDragAsync(int fromX, int fromY, int toX, int toY, Button button, string modifiers,
+        int ms, CancellationToken ct)
+    {
+        var mods = ParseCombo(modifiers);
+        if (!MoveTo(fromX, fromY) || !PressModifiers(mods, down: true)) return false;
+        try
+        {
+            if (!ButtonDown(button)) return false;
+            await Task.Delay(120, ct).ConfigureAwait(false);
+            await GlideAsync(toX, toY, ms, ct).ConfigureAwait(false);
+            await Task.Delay(120, ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            ButtonUp(button);
+            PressModifiers(mods, down: false);
+        }
+    }
+
     public static bool Scroll(string direction, int amount, string modifiers)
     {
         var mods = ParseCombo(modifiers);
@@ -227,6 +261,15 @@ internal static class InputDriver
         ["audioraisevolume"] = 0xAF, ["xf86audioraisevolume"] = 0xAF, ["audioplay"] = 0xB3, ["xf86audioplay"] = 0xB3,
     };
 
+    /// <summary>"Num0", "Numpad0", "KP_0" → 0; null for anything else.</summary>
+    private static int? NumpadDigit(string key)
+    {
+        var k = key.ToLowerInvariant();
+        foreach (var prefix in new[] { "numpad", "num", "kp_", "kp" })
+            if (k.Length == prefix.Length + 1 && k.StartsWith(prefix) && char.IsDigit(k[^1])) return k[^1] - '0';
+        return null;
+    }
+
     /// <summary>"ctrl+shift+t" → virtual keys in press order. Empty for "" (no modifiers).</summary>
     public static List<ushort> ParseCombo(string? combo)
     {
@@ -235,6 +278,7 @@ internal static class InputDriver
         foreach (var raw in combo.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
             if (Named.TryGetValue(raw, out var vk)) keys.Add(vk);
+            else if (NumpadDigit(raw) is { } d) keys.Add((ushort)(0x60 + d)); // VK_NUMPAD0..9 (Blender views)
             else if (raw.Length > 1 && (raw[0] is 'F' or 'f') && int.TryParse(raw[1..], out int f) && f is >= 1 and <= 24)
                 keys.Add((ushort)(0x70 + f - 1));
             else if (raw.Length == 1)

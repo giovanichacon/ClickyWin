@@ -11,12 +11,32 @@ namespace ClickyWindows.Services;
 
 public record PointTarget(int X, int Y, string Label, int Screen);
 
+public enum MarkKind { Point, Circle, Drag, Keys }
+
+/// <summary>
+/// A lesson drawing (Teacher mode), in screenshot pixels until <see cref="ToPhysical"/>: a control to click
+/// (Point), an area to look at (Circle, radius R), a mouse drag from (X,Y) to (X2,Y2) with a button and
+/// modifiers, or a key combination pressed with the mouse at (X,Y) when <see cref="HasAt"/>.
+/// </summary>
+public sealed record TeachMark(MarkKind Kind, double X, double Y, double X2 = 0, double Y2 = 0, double R = 0,
+    string Button = "left", string Mods = "", string Keys = "", string Label = "", bool HasAt = false)
+{
+    public TeachMark ToPhysical(ScreenshotResult shot)
+    {
+        var (x, y) = shot.ToPhysical((int)X, (int)Y);
+        var (x2, y2) = shot.ToPhysical((int)X2, (int)Y2);
+        return this with { X = x, Y = y, X2 = x2, Y2 = y2, R = R / shot.Scale };
+    }
+}
+
 /// <summary>What happened while producing one reply (filled in as the stream runs).</summary>
 public sealed class ReplyInfo
 {
     public string Model { get; set; } = "";
     public bool Escalated { get; set; }
     public bool Refused { get; set; }
+    /// <summary>USD spent on this reply (all models it went through).</summary>
+    public double Cost { get; set; }
 }
 
 /// <summary>
@@ -50,11 +70,24 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     private static partial Regex PointTagRegex();
 
     // A task may contain brackets itself ("parents[2]"), so [DO: …] allows one nested [..] level
-    [GeneratedRegex(@"\s*\[(?:POINT:[^\]]*|DO:(?:[^\[\]]|\[[^\[\]]*\])*|IGNORE)\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\s*\[(?:(?:POINT|CIRCLE|DRAG|KEYS|TEACH):[^\]]*|DO:(?:[^\[\]]|\[[^\[\]]*\])*|IGNORE|UNDO)\]", RegexOptions.IgnoreCase)]
     private static partial Regex AnyPointTag();
 
-    [GeneratedRegex(@"\s*\[POINT:[^\]]*\]", RegexOptions.IgnoreCase)]
+    // Screen positions go stale, so they never enter the history; [DO]/[TEACH] stay as examples
+    [GeneratedRegex(@"\s*\[(?:(?:POINT|CIRCLE|DRAG|KEYS):[^\]]*|UNDO)\]", RegexOptions.IgnoreCase)]
     private static partial Regex OnlyPointTag();
+
+    [GeneratedRegex(@"\[(POINT|CIRCLE|DRAG|KEYS):([^\]]*)\]", RegexOptions.IgnoreCase)]
+    private static partial Regex MarkTagRegex();
+
+    [GeneratedRegex(@"^\s*(\d+)\s*,\s*(\d+)\s*(?:>|,)\s*(\d+)\s*,\s*(\d+)(.*)$")]
+    private static partial Regex DragBody();
+
+    [GeneratedRegex(@"(\w+)\s*=\s*([\w+,]+)")]
+    private static partial Regex MarkOption();
+
+    [GeneratedRegex(@"\[TEACH:\s*([^\]]+)\]", RegexOptions.IgnoreCase)]
+    private static partial Regex TeachTagRegex();
 
     // "I'll open…", "Voy a poner…": a promise to act (caught when the model forgets the [DO] tag)
     [GeneratedRegex(@"\b(?:I'll|I will|I'm going to|let me|voy a|lo voy a|ahora)\s+(?:[\w'’]+\s+){0,3}?(?:open|close|reopen|click|play|pause|type|search|turn|switch|set|launch|start|delete|empty|move|mute|unmute|scroll|fill|abrir|abro|cerrar|cierro|poner|pongo|reproducir|buscar|busco|escribir|escribo|activar|desactivar|subir|bajar|borrar|vaciar)\b", RegexOptions.IgnoreCase)]
@@ -102,7 +135,7 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     /// routed like a spoken question: everyday model first, [ESCALATE] when allowed.
     /// </summary>
     public async Task<string> CompleteAsync(string system, List<BetaContentBlockParam> content, ReplyInfo info,
-        bool allowEscalation, CancellationToken ct, IReadOnlyList<ConversationTurn>? turns = null)
+        bool allowEscalation, CancellationToken ct, IReadOnlyList<ConversationTurn>? turns = null, string? model = null)
     {
         var messages = HistoryMessages(turns ?? []);
         messages.Add(new BetaMessageParam { Role = Role.User, Content = content });
@@ -110,7 +143,7 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         var reply = new StringBuilder();
         var stream = allowEscalation
             ? StreamRoutedAsync(system, messages, info, ct)
-            : StreamModelAsync(settings.EffectivePrimaryModel, system, messages, info, ct);
+            : StreamModelAsync(model ?? settings.EffectivePrimaryModel, system, messages, info, ct);
         await foreach (var chunk in stream.ConfigureAwait(false))
             reply.Append(chunk);
         return reply.ToString();
@@ -245,9 +278,9 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         }
         finally
         {
-            var cost = Prices.TryGetValue(model, out var p)
-                ? $" ≈ ${(inputTokens * p.input + outputTokens * p.output) / 1_000_000:F5}"
-                : "";
+            double usd = Prices.TryGetValue(model, out var p) ? (inputTokens * p.input + outputTokens * p.output) / 1_000_000 : 0;
+            info.Cost += usd;
+            var cost = usd > 0 ? $" ≈ ${usd:F5}" : "";
             Logger.Log($"[Claude] {model}: first text {firstTextMs:F0} ms, " +
                        $"{inputTokens} in / {outputTokens} out tokens{cost}");
         }
@@ -336,4 +369,48 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     /// <summary>The task in a [DO: task] tag (the user asked Clicky to act on the computer), or null.</summary>
     public static string? ParseDoTask(string text) =>
         DoTagRegex().Match(text) is { Success: true } m && m.Groups[1].Value.Trim() is { Length: > 0 } task ? task : null;
+
+    /// <summary>The goal in a [TEACH: goal] tag (the user wants a step-by-step lesson), or null.</summary>
+    public static string? ParseTeachGoal(string text) =>
+        TeachTagRegex().Match(text) is { Success: true } m && m.Groups[1].Value.Trim() is { Length: > 0 } goal ? goal : null;
+
+    /// <summary>
+    /// Lesson drawings in reply order: [POINT:x,y:label], [CIRCLE:x,y,r], [DRAG:x1,y1>x2,y2 button=middle mods=shift],
+    /// [KEYS:Ctrl+Alt+Num0 at=x,y]. Coordinates stay in screenshot pixels. Malformed tags are skipped.
+    /// </summary>
+    public static List<TeachMark> ParseMarks(string text)
+    {
+        var marks = new List<TeachMark>();
+        foreach (Match m in MarkTagRegex().Matches(text))
+        {
+            var body = m.Groups[2].Value;
+            var options = MarkOption().Matches(body).ToDictionary(o => o.Groups[1].Value.ToLowerInvariant(), o => o.Groups[2].Value);
+            switch (m.Groups[1].Value.ToUpperInvariant())
+            {
+                case "POINT" when ParsePoints(m.Value) is [var p]:
+                    marks.Add(new TeachMark(MarkKind.Point, p.X, p.Y, Label: p.Label));
+                    break;
+                case "CIRCLE" when Ints(body) is [var x, var y, var r, ..]:
+                    marks.Add(new TeachMark(MarkKind.Circle, x, y, R: r));
+                    break;
+                case "DRAG" when DragBody().Match(body) is { Success: true } d:
+                    marks.Add(new TeachMark(MarkKind.Drag, int.Parse(d.Groups[1].Value), int.Parse(d.Groups[2].Value),
+                        int.Parse(d.Groups[3].Value), int.Parse(d.Groups[4].Value),
+                        Button: options.GetValueOrDefault("button", "left").ToLowerInvariant(),
+                        Mods: options.GetValueOrDefault("mods", "") is var mods && mods.Equals("none", StringComparison.OrdinalIgnoreCase) ? "" : mods));
+                    break;
+                case "KEYS":
+                    var keys = body.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                    if (keys.Length == 0) break;
+                    bool hasAt = options.TryGetValue("at", out var at) && Ints(at) is [_, _];
+                    var xy = hasAt ? Ints(at!) : [0, 0];
+                    marks.Add(new TeachMark(MarkKind.Keys, xy[0], xy[1], Keys: keys, HasAt: hasAt));
+                    break;
+            }
+        }
+        return marks;
+
+        static int[] Ints(string s) => s.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries)
+            .Select(v => int.TryParse(v, out int n) ? n : -1).TakeWhile(n => n >= 0).ToArray();
+    }
 }
