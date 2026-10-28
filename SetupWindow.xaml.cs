@@ -3,11 +3,13 @@ using System.Reflection;
 using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
 using TextBox = System.Windows.Controls.TextBox;
 using System.Windows.Media;
+using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
 using System.Windows.Threading;
@@ -45,7 +47,7 @@ public partial class SetupWindow : Window
 
     // Shortcut text per action ("Off" = disabled), shown in the matching box
     private readonly Dictionary<ShortcutAction, string> _shortcuts = new();
-    private readonly Dictionary<ShortcutAction, TextBox> _shortcutBoxes;
+    private readonly Dictionary<ShortcutAction, Border> _shortcutBoxes;
 
     public SetupWindow(AppSettings settings, KeyboardHookService? keys = null)
     {
@@ -110,12 +112,12 @@ public partial class SetupWindow : Window
         Fill(MicBox, settings.MicDeviceId, [("", L.MicDefault), .. AudioCaptureService.ListDevices()]);
 
         // Shortcuts
-        AskLabel.Text = L.HotkeyAsk;
-        DictateLabel.Text = L.HotkeyDictate;
-        WriteLabel.Text = L.HotkeyWrite;
-        PromptLabel.Text = L.HotkeyPrompt;
+        TitleAndDesc(AskLabel, L.HotkeyAsk);
+        TitleAndDesc(DictateLabel, L.HotkeyDictate);
+        TitleAndDesc(WriteLabel, L.HotkeyWrite);
+        TitleAndDesc(PromptLabel, L.HotkeyPrompt);
         AskChange.Content = DictateChange.Content = WriteChange.Content = PromptChange.Content = L.HotkeyChange;
-        AskReset.Content = DictateReset.Content = WriteReset.Content = PromptReset.Content = L.HotkeyDefault;
+        ResetAllButton.Content = L.HotkeyResetAll;
         DictateOff.Content = WriteOff.Content = PromptOff.Content = L.HotkeyOff;
         ShortcutHelp.Text = L.HotkeyHelp;
         SetShortcut(ShortcutAction.Ask, settings.EffectiveHotkey);
@@ -198,6 +200,13 @@ public partial class SetupWindow : Window
         if (box.SelectedItem == null && box.Items.Count > 0) box.SelectedIndex = 0;
     }
 
+    private void TitleAndDesc(TextBlock block, (string Title, string Desc) text)
+    {
+        block.Inlines.Add(new Run(text.Title) { FontWeight = FontWeights.SemiBold });
+        block.Inlines.Add(new LineBreak());
+        block.Inlines.Add(new Run(text.Desc) { FontSize = 12, Foreground = (Brush)FindResource("TextTertiary") });
+    }
+
     private static void Option(CheckBox box, (string Title, string Desc) text)
     {
         box.Content = text.Title;
@@ -253,7 +262,7 @@ public partial class SetupWindow : Window
             : HotkeyParser.TryParse(text, out var chord) ? HotkeyParser.Format(chord)
             : HotkeyParser.ParseOrDefault(DefaultShortcut(action)).text;
         _shortcuts[action] = normalized;
-        _shortcutBoxes[action].Text = normalized == OffValue ? L.Off : normalized;
+        ShowKeys(_shortcutBoxes[action], normalized == OffValue ? L.Off : normalized);
     }
 
     private void OnShortcutChange(object sender, RoutedEventArgs e)
@@ -262,13 +271,13 @@ public partial class SetupWindow : Window
         if (_keys == null) return;
 
         var box = _shortcutBoxes[action];
-        box.Text = L.HotkeyPress;
+        ShowKeys(box, L.HotkeyPress);
         box.Background = new SolidColorBrush(Color.FromArgb(0x33, 0x25, 0x63, 0xEB)); // accent tint while recording
         SetStatus(ShortcutStatus, "", error: false);
 
         _keys.BeginRecording(text => Dispatcher.InvokeAsync(() =>
         {
-            box.ClearValue(BackgroundProperty);
+            box.ClearValue(Border.BackgroundProperty);
             if (text == null)
             {
                 SetShortcut(action, _shortcuts[action]); // Esc: keep the old one
@@ -284,11 +293,32 @@ public partial class SetupWindow : Window
         }));
     }
 
-    private void OnShortcutReset(object sender, RoutedEventArgs e)
+    private void OnShortcutResetAll(object sender, RoutedEventArgs e)
     {
-        var action = ActionOf(sender);
-        SetShortcut(action, DefaultShortcut(action));
+        foreach (var action in _shortcutBoxes.Keys) SetShortcut(action, DefaultShortcut(action));
         SetStatus(ShortcutStatus, "", error: false);
+    }
+
+    // "Ctrl+Win" → one key cap per key; anything else (Off, "Press the combination…") as plain text
+    private void ShowKeys(Border box, string text)
+    {
+        var row = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        if (HotkeyParser.TryParse(text, out _))
+            foreach (var key in text.Split('+'))
+                row.Children.Add(new Border
+                {
+                    Background = (Brush)FindResource("Surface3"),
+                    BorderBrush = (Brush)FindResource("BorderStrong"),
+                    BorderThickness = new Thickness(1, 1, 1, 2),
+                    CornerRadius = new CornerRadius(5),
+                    Padding = new Thickness(7, 1, 7, 2),
+                    Margin = new Thickness(4, 0, 0, 0),
+                    MinWidth = 26,
+                    Child = new TextBlock { Text = key, FontSize = 12, FontWeight = FontWeights.Medium, TextAlignment = TextAlignment.Center },
+                });
+        else
+            row.Children.Add(new TextBlock { Text = text, Foreground = (Brush)FindResource("TextTertiary"), VerticalAlignment = VerticalAlignment.Center });
+        box.Child = row;
     }
 
     private void OnShortcutOff(object sender, RoutedEventArgs e) => SetShortcut(ActionOf(sender), OffValue);
