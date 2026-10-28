@@ -10,7 +10,7 @@ namespace ClickyWindows;
 /// sentence is a command, with no key to hold. Tasks run without the Allow card (starting the
 /// session was the approval); questions before irreversible steps are said out loud and answered
 /// by voice or click. While a task runs, only "stop" is listened for. What Clicky hears while it
-/// is speaking is ignored, so it doesn't answer itself. Ends on "end session", Esc, a double-tap,
+/// is speaking is ignored (except "stop"), so it doesn't answer itself. Ends on "end session", Esc, a double-tap,
 /// or several minutes of silence.
 /// </summary>
 public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, CompanionManager companion,
@@ -41,8 +41,8 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             if (withMic)
             {
                 _voice = new VoiceSession();
-                // Clicky's own voice must never reach speech-to-text (speakers, no headphones): mute the mic while it talks
-                _voice.Start(settings, mic, onLevel: null, onTurn: text => Task.Run(() => Hear(text)), muted: ClickyTalking);
+                // The mic stays live while Clicky talks so "stop" is heard; Hear drops the echo of its own voice
+                _voice.Start(settings, mic, onLevel: null, onTurn: (text, started) => Task.Run(() => Hear(text, started)));
             }
         }
         Logger.Log("[Session] Started");
@@ -73,16 +73,37 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         _ = companion.SayAsync(L.SessionEnded);
     }
 
-    private static bool ClickyTalking() => SpeechService.IsTalking || DateTime.UtcNow - SpeechService.LastTalkEnded < EchoTail;
+    /// <summary>Clicky's voice played while this turn was spoken, so it may hold its echo.</summary>
+    private static bool TalkedDuringTurn(DateTime started) =>
+        SpeechService.IsTalking || SpeechService.LastTalkEnded + EchoTail > started;
 
-    /// <summary>One finished sentence from the user (from the mic, or a test).</summary>
-    public void Hear(string text)
+    /// <summary>One finished sentence from the user (from the mic, or a test), and when its first words arrived.</summary>
+    public void Hear(string text, DateTime? started = null)
     {
         if (!IsActive) return;
         var now = DateTime.UtcNow;
         lock (_gate) _lastActivity = now;
 
-        // Answering Clicky's question (Yes/No or a choice) works even while its voice is still asking
+        // Over Clicky's voice (speakers, no headphones) only "stop" counts; the rest is its own echo
+        if (started is { } s && TalkedDuringTurn(s)) // typed test lines (no start time) are never echo
+        {
+            if (!IsStop(text) && !EndsWithStop(text))
+            {
+                Logger.Log($"[Session] Echo: \"{text}\"");
+                return;
+            }
+            Logger.Log($"[Session] Stop over voice: \"{text}\"");
+            companion.StopSpeaking();
+            if (agent.IsRunning) agent.Stop();
+            return;
+        }
+        if (agent.IsRunning && IsStop(text)) // before TryAnswer: a free-form answer would swallow "Stop."
+        {
+            Logger.Log($"[Session] Stop: \"{text}\"");
+            agent.Stop();
+            return;
+        }
+
         if (card.TryAnswer(text))
         {
             Logger.Log($"[Session] Answer: \"{text}\"");
@@ -95,12 +116,6 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         }
         if (agent.IsRunning)
         {
-            if (IsStop(text))
-            {
-                Logger.Log($"[Session] Stop: \"{text}\"");
-                agent.Stop();
-                return;
-            }
             _ = OnHeardWhileWorkingAsync(text);
             return;
         }
@@ -215,6 +230,11 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
 
     /// <summary>A short command made of stop words ("Stop.", "Para, para"), alone or as the last sentence.</summary>
     private static bool IsStop(string text) => IsStopWords(text) || IsStopWords(LastSentence(text));
+
+    /// <summary>"…opened the folder stop": echo and the user's stop run together without punctuation.</summary>
+    private static bool EndsWithStop(string text) =>
+        Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() is { } w &&
+        StopWords.Contains(w) && w is not ("wait" or "espera" or "alto");
 
     private static bool IsStopWords(string text)
     {

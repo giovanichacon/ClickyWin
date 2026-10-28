@@ -50,6 +50,8 @@ public sealed class AssemblyAIService : IAsyncDisposable
     private readonly TaskCompletionSource _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _finalTurn = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _turnOpen, _finishing; // under _turnsLock
+    private int _startedOrder = -1; // under _turnsLock: the turn whose first words arrived at _turnStartedAt
+    private DateTime _turnStartedAt;
 
     private readonly SortedDictionary<int, string> _turns = new();
     private readonly object _turnsLock = new();
@@ -60,19 +62,24 @@ public sealed class AssemblyAIService : IAsyncDisposable
     private int _audioFrames;
     private int _disposed;
 
-    /// <summary>Each finished turn's text, as it ends (hands-free task session). Fires on the receive loop: don't block.</summary>
-    public event Action<string>? TurnEnded;
+    /// <summary>
+    /// Each finished turn's text and when its first words arrived (UTC), as it ends (hands-free task session).
+    /// Fires on the receive loop: don't block.
+    /// </summary>
+    public event Action<string, DateTime>? TurnEnded;
 
     /// <summary>Set when the session failed (connect error, abnormal close). Null on success.</summary>
     public string? Error { get; private set; }
 
     /// <param name="keyterms">Personal dictionary: boosted names/terms (API limit 100 terms of ≤50 chars).</param>
     public AssemblyAIService(string apiKey, string endpoint, string speechModel, IReadOnlyList<string>? keyterms = null,
-        IReadOnlyList<string>? languages = null, string? prompt = null)
+        IReadOnlyList<string>? languages = null, string? prompt = null, bool longTurns = false)
     {
         _apiKey = apiKey;
         var url = $"{endpoint}?sample_rate=16000&encoding=pcm_s16le" +
                   $"&speech_model={Uri.EscapeDataString(speechModel)}";
+        // Hands-free: a thinking pause ("I've been working on… the bake script") must not end the command
+        if (longTurns) url += "&min_turn_silence=800&max_turn_silence=2500";
         if (languages is { Count: > 0 })
             url += "&language_codes=" + Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(languages));
         if (!string.IsNullOrWhiteSpace(prompt))
@@ -325,16 +332,19 @@ public sealed class AssemblyAIService : IAsyncDisposable
                 int order = node["turn_order"]?.GetValue<int>() ?? 0;
                 string text = node["transcript"]?.GetValue<string>() ?? "";
                 bool endOfTurn = node["end_of_turn"]?.GetValue<bool>() ?? false;
+                DateTime started;
                 lock (_turnsLock)
                 {
                     _turns[order] = text; // later messages for a turn supersede earlier ones
                     _turnOpen = !endOfTurn && text.Length > 0;
                     if (endOfTurn && _finishing) _finalTurn.TrySetResult();
+                    if (text.Length > 0 && order != _startedOrder) (_startedOrder, _turnStartedAt) = (order, DateTime.UtcNow);
+                    started = order == _startedOrder ? _turnStartedAt : DateTime.UtcNow;
                 }
                 if (endOfTurn)
                 {
                     Logger.Log($"[ASR] Turn {order} ended: \"{text}\"");
-                    if (text.Trim().Length > 0) TurnEnded?.Invoke(text.Trim());
+                    if (text.Trim().Length > 0) TurnEnded?.Invoke(text.Trim(), started);
                 }
                 break;
 
