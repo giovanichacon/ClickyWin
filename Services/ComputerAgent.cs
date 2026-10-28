@@ -230,7 +230,9 @@ public sealed class ComputerAgent(AppSettings settings)
                           "install, change account or security settings), and when the user must type a password, " +
                           "payment details or a code themselves. With options (2 or 3 short labels): when you must " +
                           "choose between the user's own things, such as Chrome profiles or email accounts, and " +
-                          "nothing you remember settles it.",
+                          "nothing you remember settles it. The user may also answer in their own words. Never ask the " +
+                          "user something you can work out yourself (code, file paths, settings): they may not be " +
+                          "technical, so decide and act.",
             InputSchema = new()
             {
                 Properties = new Dictionary<string, JsonElement>
@@ -284,6 +286,9 @@ public sealed class ComputerAgent(AppSettings settings)
             if (options is { Length: < 2 }) options = null;
             string? answer = AskUser == null ? null : await AskUser(question, options, ct).ConfigureAwait(false);
             Logger.Log($"[Agent] Asked \"{question}\" → {answer ?? "no"}");
+            if (answer != null && answer != "yes" && options?.Contains(answer) != true)
+                return Result(call, $"The user answered in their own words: \"{answer}\". Act on it; if it doesn't answer " +
+                                    "the question, decide the most sensible way yourself instead of asking again.");
             if (options != null)
                 return Result(call, answer != null ? $"The user chose: {answer}"
                                                     : "The user didn't choose. Stop and say briefly what you did not do.");

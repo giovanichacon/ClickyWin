@@ -24,6 +24,9 @@ public partial class AgentCard : Window
     private string? _idleTitle, _idleHint; // hands-free session banner, shown whenever nothing else is
     private volatile string?[] _askLabels = [];
     private volatile bool _askYesNo;
+    private const int Spoken = 9; // _choice result: the user answered in their own words (_spoken)
+    private volatile bool _askFree;
+    private volatile string? _spoken;
 
     public AgentCard()
     {
@@ -49,15 +52,18 @@ public partial class AgentCard : Window
     /// <summary>
     /// Clicky's question: Yes/No before an irreversible step (returns "yes" or null), or a choice
     /// between 2–3 options such as Chrome profiles (returns the chosen option, or null).
+    /// A spoken answer that is more than a yes/no or a button comes back word for word.
     /// </summary>
     public async Task<string?> AskUserAsync(string question, string[]? options, CancellationToken ct)
     {
         if (options == null)
-            return await AskAsync(L.AgentAskTitle, question, "", L.AgentYes, L.AgentNo, null, ct).ConfigureAwait(false) == 0
-                ? "yes" : null;
+        {
+            int yesNo = await AskAsync(L.AgentAskTitle, question, "", L.AgentYes, L.AgentNo, null, ct, free: true).ConfigureAwait(false);
+            return yesNo == 0 ? "yes" : yesNo == Spoken ? _spoken : null;
+        }
         int choice = await AskAsync(L.AgentAskTitle, question, "", options[0], options[1],
-            options.Length > 2 ? options[2] : null, ct).ConfigureAwait(false);
-        return choice >= 0 && choice < options.Length ? options[choice] : null;
+            options.Length > 2 ? options[2] : null, ct, free: true).ConfigureAwait(false);
+        return choice == Spoken ? _spoken : choice >= 0 && choice < options.Length ? options[choice] : null;
     }
 
     /// <summary>Counts down before the first action. False when the user cancelled (Esc or the button).</summary>
@@ -118,7 +124,9 @@ public partial class AgentCard : Window
         if (choice == null || choice.Task.IsCompleted) return false;
         string text = Normalize(spoken);
         int index = -2;
-        if (_askYesNo)
+        // "No, it's on the desktop": more than a few words is an answer in its own right, pass it on as said
+        if (_askFree && text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 3) index = Spoken;
+        else if (_askYesNo)
         {
             if (YesWords.Any(w => StartsWithWord(text, w))) index = 0;
             else if (NoWords.Any(w => StartsWithWord(text, w))) index = 1;
@@ -134,7 +142,9 @@ public partial class AgentCard : Window
                     if (Ordinals[i].Any(w => StartsWithWord(text, w) || text.Contains(" " + w + " "))) index = i;
             if (index < 0 && NoWords.Any(w => StartsWithWord(text, w))) index = -1;
         }
+        if (index == -2 && _askFree && text.Length > 0) index = Spoken;
         if (index == -2) return false;
+        if (index == Spoken) _spoken = spoken.Trim();
         return choice.TrySetResult(index);
     }
 
@@ -157,8 +167,10 @@ public partial class AgentCard : Window
     // ── Modes ───────────────────────────────────────────────────────────────
 
     private async Task<int> AskAsync(string title, string body, string hint, string first, string second, string? third,
-        CancellationToken ct)
+        CancellationToken ct, bool free = false)
     {
+        _askFree = free;
+        _spoken = null;
         _askYesNo = first == L.AgentYes;
         _askLabels = [first, second, third];
         var choice = Begin(ct);
