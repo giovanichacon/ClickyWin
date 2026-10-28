@@ -183,7 +183,8 @@ public partial class SetupWindow : Window
         AutostartBox.IsChecked = Autostart.IsEnabled;
         AgentModelLabel.Text = L.AgentModelLabel;
         Fill(AgentModelBox, settings.EffectiveAgentModel,
-            ("claude-opus-5-5", "Opus 5.5  (~5–20¢)"), ("claude-haiku-5-5", "Haiku 5.5  (~1¢)"));
+            ("claude-opus-5-5", "Opus 5.5  (~5–20¢)"), ("claude-sonnet-5-5", "Sonnet 5.5  (~3–10¢)"),
+            ("claude-haiku-5-5", "Haiku 5.5  (~1¢)"));
         AgentCostLabel.Text = L.AgentCostLabel;
         Fill(AgentCostBox, settings.EffectiveAgentCostCap.ToString("0.00", CultureInfo.InvariantCulture),
             ("0.25", "$0.25"), ("0.50", "$0.50"), ("1.00", "$1.00"), ("2.00", "$2.00"));
