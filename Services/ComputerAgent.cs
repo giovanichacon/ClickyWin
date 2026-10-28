@@ -30,6 +30,8 @@ public sealed class ComputerAgent(AppSettings settings)
     private const string AskUserTool = "ask_user";
     private const string RememberTool = "remember";
     private const string HandOffTool = "hand_off";
+    private const string ConsultTool = "consult";
+    private const int MaxConsults = 3;
     private const string ReportTag = "[REPORT]";
     private const int MaxNotes = 40;
     private const string HaltText = "Not executed: an earlier computer action in this turn failed.";
@@ -63,12 +65,15 @@ public sealed class ComputerAgent(AppSettings settings)
     private double _scale = 1;      // image px per physical px
     private int _width, _height;    // screenshot size sent to Claude
 
-    public async Task<AgentResult> RunAsync(string task, CancellationToken ct)
+    /// <param name="model">Who drives; null = the Agent model from Settings.</param>
+    /// <param name="planFirst">Long task: one call to the boss model writes a plan for the first message.</param>
+    public async Task<AgentResult> RunAsync(string task, CancellationToken ct, string? model = null, bool planFirst = false)
     {
         var cfg = settings.Config.Agent;
-        var model = settings.EffectiveAgentModel;
-        // The cheap model may hand a task it can't manage to the "Hard questions" model, once
-        var stronger = FallbackModels.Contains(model) ? null : settings.EffectiveEscalationModel;
+        model ??= settings.EffectiveAgentModel;
+        // Ladder: Haiku may hand a task it can't manage to Sonnet, once; Sonnet may consult the boss (Opus), who never drives
+        var stronger = FallbackModels.Contains(model) ? null : cfg.HandOffModel;
+        int consults = 0;
         var client = new AnthropicClient
         {
             ApiKey = settings.AnthropicApiKey,
@@ -80,6 +85,21 @@ public sealed class ComputerAgent(AppSettings settings)
 
         Logger.Log($"[Agent] Start ({model}): \"{task}\"");
         var first = Capture();
+        var intro = $"Task: {task}";
+        if (planFirst)
+        {
+            try
+            {
+                var (plan, planCost) = await AskBossAsync(client,
+                    "Plan a task that a computer-use agent will carry out on this Windows PC. Write a short numbered plan " +
+                    "(at most 10 steps) with the apps, places and checks it needs. No preamble.",
+                    $"Task: {task}\n\nThe current screen:", first, ct).ConfigureAwait(false);
+                cost += planCost;
+                if (plan.Length > 0) intro += $"\n\nA planner wrote this plan; follow it, adapt when the screen differs:\n{plan}";
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { Logger.Log($"[Agent] Planning failed, going on without a plan: {ex.Message}"); }
+        }
         var messages = new List<BetaMessageParam>
         {
             new()
@@ -87,7 +107,7 @@ public sealed class ComputerAgent(AppSettings settings)
                 Role = Role.User,
                 Content = new List<BetaContentBlockParam>
                 {
-                    new BetaTextBlockParam { Text = $"Task: {task}\n\nThe current screen ({_width}x{_height} pixels):" },
+                    new BetaTextBlockParam { Text = $"{intro}\n\nThe current screen ({_width}x{_height} pixels):" },
                     Image(first),
                 },
             },
@@ -104,7 +124,7 @@ public sealed class ComputerAgent(AppSettings settings)
                     MaxTokens = cfg.MaxTokens,
                     System = SystemPrompt(),
                     Messages = messages,
-                    Tools = Tools(handOff: stronger != null),
+                    Tools = Tools(handOff: stronger != null, consult: CanConsult(model)),
                     OutputConfig = new BetaOutputConfig { Effort = cfg.Effort },
                     CacheControl = new BetaCacheControlEphemeral(),
                 };
@@ -169,7 +189,7 @@ public sealed class ComputerAgent(AppSettings settings)
                             {
                                 new BetaTextBlockParam
                                 {
-                                    Text = $"Task: {task}\n\nA faster model started this task and handed it to you. " +
+                                    Text = $"{intro}\n\nA faster model started this task and handed it to you. " +
                                            $"What it did and where it got stuck: {why}\n\nThe current screen ({_width}x{_height} pixels):",
                                 },
                                 Image(now),
@@ -189,6 +209,11 @@ public sealed class ComputerAgent(AppSettings settings)
                         continue;
                     }
                     ct.ThrowIfCancellationRequested();
+                    if (call.Name == ConsultTool)
+                    {
+                        results.Add(await ConsultAsync(client, task, call, ++consults, ct, c => cost += c).ConfigureAwait(false));
+                        continue;
+                    }
                     if (call.Name is not (AskUserTool or RememberTool) && ++actions > cfg.MaxActions)
                         return Finish(AgentOutcome.LimitReached, L.AgentLimit, cost, actions - 1);
 
@@ -248,9 +273,88 @@ public sealed class ComputerAgent(AppSettings settings)
         return prompt.ToString();
     }
 
-    private static List<BetaToolUnion> Tools(bool handOff)
+    private bool CanConsult(string model) =>
+        model != settings.Config.Agent.BossModel && !model.StartsWith("claude-haiku", StringComparison.Ordinal);
+
+    /// <summary>One boss call with the screen as it is now; the driver gets the advice as the tool result.</summary>
+    private async Task<BetaToolResultBlockParam> ConsultAsync(AnthropicClient client, string task, BetaToolUseBlock call,
+        int count, CancellationToken ct, Action<double> addCost)
+    {
+        var question = Str(call.Input, "question") ?? "";
+        Logger.Log($"[Agent] Consult {count}/{MaxConsults} ({settings.Config.Agent.BossModel}): \"{question}\"");
+        if (count > MaxConsults)
+            return Result(call, "No more consultations for this task. Decide yourself.", isError: true);
+        try
+        {
+            var (advice, c) = await AskBossAsync(client,
+                "You advise a computer-use agent that is operating a Windows PC and got stuck. You see its screen. " +
+                "Answer its question with concrete next steps (what to click or type, where). Short. You don't act yourself.",
+                $"Task: {task}\n\nThe agent asks: {question}\n\nThe current screen ({_width}x{_height} pixels, " +
+                "the agent's coordinate space):", Capture(), ct).ConfigureAwait(false);
+            addCost(c);
+            Logger.Log($"[Agent] Advice: \"{advice}\"");
+            return Result(call, advice.Length > 0 ? advice : "No advice. Decide yourself.");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Logger.Log($"[Agent] Consult failed: {ex.Message}");
+            return Result(call, "The advisor is unavailable. Decide yourself.", isError: true);
+        }
+    }
+
+    /// <summary>A single text answer from the boss model (plans and advice); it gets no tools and never drives.</summary>
+    private async Task<(string text, double cost)> AskBossAsync(AnthropicClient client, string system, string text,
+        string jpegBase64, CancellationToken ct)
+    {
+        var boss = settings.Config.Agent.BossModel;
+        var parameters = new MessageCreateParams
+        {
+            Model = boss,
+            MaxTokens = 2000,
+            System = system + $"\nReply in this language: {L.CurrentLanguageName}.",
+            Messages =
+            [
+                new()
+                {
+                    Role = Role.User,
+                    Content = new List<BetaContentBlockParam> { new BetaTextBlockParam { Text = text }, Image(jpegBase64) },
+                },
+            ],
+            OutputConfig = new BetaOutputConfig { Effort = "low" },
+        };
+        if (FallbackModels.Contains(boss))
+            parameters = parameters with { Betas = [FallbackBeta], Fallbacks = new Default() };
+        var response = await client.Beta.Messages.Create(parameters, ct).ConfigureAwait(false);
+        var cost = Cost(boss, response.Usage);
+        var answer = string.Concat(response.Content.Select(b => b.TryPickText(out var t) ? t.Text : "")).Trim();
+        Logger.Log($"[Agent] {boss}: {response.Usage.InputTokens} in / {response.Usage.OutputTokens} out ≈ ${cost:F4}");
+        return (answer, cost);
+    }
+
+    private static List<BetaToolUnion> Tools(bool handOff, bool consult)
     {
         List<BetaToolUnion> tools = [.. BaseTools()];
+        if (consult)
+            tools.Add(new BetaTool
+            {
+                Name = ConsultTool,
+                Description = "Ask a stronger advisor, who sees the current screen, what to do next. Use it when you are " +
+                              "stuck (the same step failed twice, or you don't know how to go on), instead of guessing or " +
+                              "asking the user. You keep control; the advisor only answers. A few times per task at most.",
+                InputSchema = new()
+                {
+                    Properties = new Dictionary<string, JsonElement>
+                    {
+                        ["question"] = JsonSerializer.SerializeToElement(new
+                        {
+                            type = "string",
+                            description = "What you tried, what you see, and what you need to know.",
+                        }),
+                    },
+                    Required = ["question"],
+                },
+            });
         if (handOff)
             tools.Add(new BetaTool
             {
