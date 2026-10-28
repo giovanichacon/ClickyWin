@@ -285,11 +285,13 @@ public partial class App
     {
         if (_setupWindow != null)
         {
-            _setupWindow.Activate();
+            BringToFront(_setupWindow);
             return;
         }
 
         _setupWindow = new SetupWindow(_settings, _keys);
+        // Opened from the non-activating notch, Windows keeps it behind the foreground app
+        _setupWindow.ContentRendered += (s, _) => BringToFront((Window)s!);
         try
         {
             if (_setupWindow.ShowDialog() == true)
@@ -312,6 +314,15 @@ public partial class App
         {
             _setupWindow = null;
         }
+    }
+
+    // Topmost on/off lifts the window even when Windows' foreground lock refuses Activate()
+    private static void BringToFront(Window w)
+    {
+        if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+        w.Topmost = true;
+        w.Topmost = false;
+        w.Activate();
     }
 
     private void ApplyCursor()

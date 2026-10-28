@@ -23,7 +23,7 @@
             BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,1,1">
         <DockPanel>
             <Button x:Name="SettingsButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}"
-                    Width="22" Height="20" Padding="0" VerticalAlignment="Center" Click="OnSettings">
+                    Width="22" Height="20" Padding="0" VerticalAlignment="Center" PreviewMouseLeftButtonDown="OnSettings">
                 <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="11"/>
             </Button>
             <!-- the cursor triangle, tilted like the overlay's -->

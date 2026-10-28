@@ -101,9 +101,11 @@ public partial class NotchWindow : Window
 
     private void OnPillClick(object sender, MouseButtonEventArgs e) => _togglePanel();
 
-    private void OnSettings(object sender, RoutedEventArgs e)
+    // On mouse down, not Click: the bar resizes under the cursor and the Button lost its press/release pair
+    private void OnSettings(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        _openSettings();
+        Logger.Log("[Notch] Settings clicked");
+        Dispatcher.InvokeAsync(_openSettings); // after this input event, so the modal Setup doesn't open inside it
     }
 }
