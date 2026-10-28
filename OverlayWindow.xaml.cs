@@ -17,6 +17,7 @@ public partial class OverlayWindow : Window
     private DotState _dotState = DotState.FollowingCursor;
     private AppState _appState = AppState.Idle;
     private bool _alwaysShowCursor = true;
+    private bool _hideCursor;
     private bool _hwndReady;
     private IntPtr _hwnd;
     private double _dpiScale = 1.0;   // cached: reading it costs a GDI call, too much at 60 fps
@@ -102,12 +103,20 @@ public partial class OverlayWindow : Window
         UpdateTicking();
     }
 
-    /// <summary>false = the dot appears only while listening, thinking, speaking or pointing.</summary>
-    public void SetAlwaysShowCursor(bool always)
+    /// <summary>
+    /// always = the dot also follows the mouse while idle; hide = it shows only while pointing
+    /// (the listening bars and spinner stay). color = cursor, bars, spinner and bubble.
+    /// </summary>
+    public void SetCursor(bool always, bool hide, WpfColor color)
     {
-        _alwaysShowCursor = always;
+        _alwaysShowCursor = always && !hide;
+        _hideCursor = hide;
+        Resources["CursorColor"] = color;
+        Resources["CursorBrush"] = new SolidColorBrush(color);
+        if (_appState == AppState.Speaking && _dotState == DotState.FollowingCursor)
+            CursorFollower.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
         if (_appState == AppState.Idle && _dotState == DotState.FollowingCursor)
-            CursorFollower.Visibility = always ? Visibility.Visible : Visibility.Collapsed;
+            CursorFollower.Visibility = _alwaysShowCursor ? Visibility.Visible : Visibility.Collapsed;
         UpdateTicking();
     }
 
@@ -315,7 +324,7 @@ public partial class OverlayWindow : Window
                     WaveformBars.Visibility      = Visibility.Collapsed;
                     ProcessingSpinner.Visibility = Visibility.Collapsed;
                     StopSpinner();
-                    CursorFollower.Visibility = Visibility.Visible;
+                    CursorFollower.Visibility = _hideCursor ? Visibility.Collapsed : Visibility.Visible;
                     break;
             }
             UpdateTicking();
@@ -402,7 +411,7 @@ public partial class OverlayWindow : Window
         AnimateRotation(-35);
 
         // Show dot only if the app isn't in a state that uses a different indicator
-        if (_appState == AppState.Speaking || (_appState == AppState.Idle && _alwaysShowCursor))
+        if ((_appState == AppState.Speaking && !_hideCursor) || (_appState == AppState.Idle && _alwaysShowCursor))
             CursorFollower.Visibility = Visibility.Visible;
         else if (_appState == AppState.Idle)
             CursorFollower.Visibility = Visibility.Collapsed;
@@ -469,13 +478,12 @@ public partial class OverlayWindow : Window
 
             // Color: blue → light pink → blue over the same duration
             var colorAnim = new ColorAnimationUsingKeyFrames();
-            colorAnim.KeyFrames.Add(new LinearColorKeyFrame(
-                WpfColor.FromRgb(0x33, 0x80, 0xFF), KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            var baseColor = (WpfColor)Resources["CursorColor"];
+            colorAnim.KeyFrames.Add(new LinearColorKeyFrame(baseColor, KeyTime.FromTimeSpan(TimeSpan.Zero)));
             colorAnim.KeyFrames.Add(new EasingColorKeyFrame(
                 WpfColor.FromRgb(0xFF, 0x8A, 0xBA), KeyTime.FromTimeSpan(TimeSpan.FromSeconds(0.18)))
                 { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-            colorAnim.KeyFrames.Add(new LinearColorKeyFrame(
-                WpfColor.FromRgb(0x33, 0x80, 0xFF), KeyTime.FromTimeSpan(TimeSpan.FromSeconds(0.5))));
+            colorAnim.KeyFrames.Add(new LinearColorKeyFrame(baseColor, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(0.5))));
 
             SpinnerStrokeBrush.BeginAnimation(SolidColorBrush.ColorProperty, colorAnim);
         });

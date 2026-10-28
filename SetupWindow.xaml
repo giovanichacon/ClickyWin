@@ -145,6 +145,29 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- Color swatch: a circle in the item's Background, ringed when selected -->
+        <Style x:Key="Swatch" TargetType="ListBoxItem">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Ring" Width="36" Height="36" CornerRadius="18" Margin="0,0,10,0"
+                                BorderThickness="2" BorderBrush="Transparent" ToolTip="{TemplateBinding Content}">
+                            <Ellipse Width="24" Height="24" Fill="{TemplateBinding Background}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Ring" Property="BorderBrush" Value="{StaticResource BorderStrong}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Ring" Property="BorderBrush" Value="{StaticResource TextPrimary}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- Small uppercase header above a group of rows -->
         <Style x:Key="Group" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
@@ -279,7 +302,6 @@
                     <ComboBox x:Name="LanguageBox" HorizontalAlignment="Left" MinWidth="200"/>
 
                     <TextBlock x:Name="GeneralGroup" Style="{StaticResource Group}"/>
-                    <CheckBox x:Name="AlwaysCursorBox"/>
                     <CheckBox x:Name="ShowNotchBox"/>
                     <CheckBox x:Name="RecordingsBox"/>
                     <CheckBox x:Name="CopyAnswersBox"/>
@@ -433,6 +455,32 @@
 
                     <TextBlock x:Name="ShortcutStatus" Style="{StaticResource Status}" Margin="0,10,0,0"/>
                     <TextBlock x:Name="ShortcutHelp" Style="{StaticResource Status}" Margin="0,10,0,0"/>
+                </StackPanel>
+                </Border>
+            </TabItem>
+
+            <!-- Cursor -->
+            <TabItem x:Name="CursorTab" Tag="&#xE8B0;">
+                <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock x:Name="CursorColorGroup" Style="{StaticResource Group}"/>
+                    <ListBox x:Name="CursorColorBox" ItemContainerStyle="{StaticResource Swatch}" Background="Transparent"
+                             BorderThickness="0" Padding="0">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
+
+                    <TextBlock x:Name="CursorShowGroup" Style="{StaticResource Group}"/>
+                    <ListBox x:Name="CursorShowBox" ItemContainerStyle="{StaticResource Pill}" Background="Transparent"
+                             BorderThickness="0" Padding="0">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
+
+                    <TextBlock x:Name="CursorGroup" Style="{StaticResource Group}"/>
+                    <CheckBox x:Name="HighlightBox"/>
                 </StackPanel>
                 </Border>
             </TabItem>

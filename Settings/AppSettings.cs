@@ -55,6 +55,12 @@ public sealed class AppSettings
     public bool AlwaysShowCursor { get; set; }
     /// <summary>Black pill at the top center of the screen; click it for the panel.</summary>
     public bool ShowNotch { get; set; } = true;
+    /// <summary>Clicky's cursor shows only while pointing (wins over AlwaysShowCursor).</summary>
+    public bool HideCursor { get; set; }
+    /// <summary>Cursor color, "#RRGGBB" (Settings > Cursor offers 4).</summary>
+    public string CursorColor { get; set; } = "#3380FF";
+    /// <summary>Glowing edge around the primary screen while Clicky listens and thinks.</summary>
+    public bool ScreenHighlight { get; set; }
     /// <summary>Clicky's cursor, bar and cards show in screen recordings and screenshots (also Claude's own).</summary>
     public bool ShowInRecordings { get; set; }
 

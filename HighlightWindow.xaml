@@ -1,0 +1,21 @@
+<Window x:Class="ClickyWindows.HighlightWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ClickyHighlight"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        IsHitTestVisible="False"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Topmost="True"
+        ResizeMode="NoResize"
+        Opacity="0">
+
+    <!-- Glowing edge around the primary screen while Clicky listens and thinks (Settings > Cursor) -->
+    <Border x:Name="Edge" BorderThickness="3" BorderBrush="#3380FF">
+        <Border.Effect>
+            <DropShadowEffect x:Name="Glow" Color="#3380FF" BlurRadius="24" ShadowDepth="0" Opacity="1"/>
+        </Border.Effect>
+    </Border>
+</Window>

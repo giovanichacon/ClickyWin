@@ -23,6 +23,7 @@ public partial class App
     private DictationManager? _dictation;
     private KeyboardHookService? _keys;
     private OverlayWindow? _overlay;
+    private HighlightWindow? _highlight;
     private AgentController? _agent;
     private TaskSession? _session;
     private MainWindow? _mainWindow;
@@ -79,7 +80,8 @@ public partial class App
         _dictation = new DictationManager(_settings, _mic, Dispatcher);
 
         _overlay = new OverlayWindow();
-        _overlay.SetAlwaysShowCursor(_settings.AlwaysShowCursor);
+        _highlight = new HighlightWindow();
+        ApplyCursor();
         _overlay.Show();
 
         _mainWindow = new MainWindow(_companion, _dictation, _overlay);
@@ -93,6 +95,8 @@ public partial class App
 
         _notch = new NotchWindow(ToggleNotchPanel, OpenSetup);
         _companion.StateChanged += state => Dispatcher.InvokeAsync(() => _notch.SetState(state));
+        _companion.StateChanged += state => Dispatcher.InvokeAsync(() =>
+            _highlight?.SetActive(_settings.ScreenHighlight && state is AppState.Listening or AppState.Processing));
         _dictation.StateChanged += state => Dispatcher.InvokeAsync(() => _notch.SetState(state));
         if (_settings.ShowNotch) _notch.Show();
 
@@ -289,7 +293,7 @@ public partial class App
             if (_setupWindow.ShowDialog() == true)
             {
                 if (_mic != null) _mic.DeviceId = _settings.MicDeviceId;
-                _overlay?.SetAlwaysShowCursor(_settings.AlwaysShowCursor);
+                ApplyCursor();
                 if (_settings.ShowNotch) _notch?.Show(); else _notch?.Hide();
                 Win32.SetCapturable(_settings.ShowInRecordings);
                 if (!_settings.TutorMode) _companion?.StopTutor();
@@ -306,6 +310,16 @@ public partial class App
         {
             _setupWindow = null;
         }
+    }
+
+    private void ApplyCursor()
+    {
+        System.Windows.Media.Color color;
+        try { color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(_settings.CursorColor); }
+        catch (FormatException) { color = System.Windows.Media.Color.FromRgb(0x33, 0x80, 0xFF); }
+        _overlay?.SetCursor(_settings.AlwaysShowCursor, _settings.HideCursor, color);
+        _highlight?.SetColor(color);
+        if (!_settings.ScreenHighlight) _highlight?.SetActive(false);
     }
 
     // ── Tray ────────────────────────────────────────────────────────────────

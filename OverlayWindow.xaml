@@ -13,6 +13,12 @@
         Left="-9999" Top="-9999"
         Width="320" Height="200">
 
+    <!-- Cursor color (Settings > Cursor); SetCursor replaces both -->
+    <Window.Resources>
+        <Color x:Key="CursorColor">#3380FF</Color>
+        <SolidColorBrush x:Key="CursorBrush" Color="#3380FF"/>
+    </Window.Resources>
+
     <Canvas x:Name="OverlayCanvas">
 
         <!-- The window is small and moves with the dot: every element sits at a fixed spot
@@ -30,9 +36,9 @@
                     <RotateTransform x:Name="CursorRotate" Angle="-35"/>
                 </TransformGroup>
             </Grid.RenderTransform>
-            <Path Data="M16,6.76 L8,20.62 L24,20.62 Z" Fill="#3380FF">
+            <Path Data="M16,6.76 L8,20.62 L24,20.62 Z" Fill="{DynamicResource CursorBrush}">
                 <Path.Effect>
-                    <DropShadowEffect x:Name="CursorGlow" Color="#3380FF" BlurRadius="16" ShadowDepth="0" Opacity="1"/>
+                    <DropShadowEffect x:Name="CursorGlow" Color="{DynamicResource CursorColor}" BlurRadius="16" ShadowDepth="0" Opacity="1"/>
                 </Path.Effect>
             </Path>
         </Grid>
@@ -45,13 +51,13 @@
                     Visibility="Collapsed"
                     Height="20">
             <StackPanel.Effect>
-                <DropShadowEffect Color="#3380FF" BlurRadius="6" ShadowDepth="0" Opacity="0.6"/>
+                <DropShadowEffect Color="{DynamicResource CursorColor}" BlurRadius="6" ShadowDepth="0" Opacity="0.6"/>
             </StackPanel.Effect>
-            <Rectangle x:Name="Bar0" Width="2" Height="5" Fill="#FF3380FF" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
-            <Rectangle x:Name="Bar1" Width="2" Height="5" Fill="#FF3380FF" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
-            <Rectangle x:Name="Bar2" Width="2" Height="5" Fill="#FF3380FF" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
-            <Rectangle x:Name="Bar3" Width="2" Height="5" Fill="#FF3380FF" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
-            <Rectangle x:Name="Bar4" Width="2" Height="5" Fill="#FF3380FF" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
+            <Rectangle x:Name="Bar0" Width="2" Height="5" Fill="{DynamicResource CursorBrush}" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
+            <Rectangle x:Name="Bar1" Width="2" Height="5" Fill="{DynamicResource CursorBrush}" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
+            <Rectangle x:Name="Bar2" Width="2" Height="5" Fill="{DynamicResource CursorBrush}" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
+            <Rectangle x:Name="Bar3" Width="2" Height="5" Fill="{DynamicResource CursorBrush}" Margin="0,0,2,0" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
+            <Rectangle x:Name="Bar4" Width="2" Height="5" Fill="{DynamicResource CursorBrush}" VerticalAlignment="Bottom" RadiusX="1" RadiusY="1"/>
         </StackPanel>
 
         <!-- Processing spinner — rotating dashed ring shown while waiting for Claude's response.
@@ -70,10 +76,10 @@
                      Fill="Transparent"
                      RenderTransformOrigin="0.5,0.5">
                 <Ellipse.Stroke>
-                    <SolidColorBrush x:Name="SpinnerStrokeBrush" Color="#3380FF"/>
+                    <SolidColorBrush x:Name="SpinnerStrokeBrush" Color="{DynamicResource CursorColor}"/>
                 </Ellipse.Stroke>
                 <Ellipse.Effect>
-                    <DropShadowEffect Color="#3380FF" BlurRadius="6" ShadowDepth="0" Opacity="0.6"/>
+                    <DropShadowEffect Color="{DynamicResource CursorColor}" BlurRadius="6" ShadowDepth="0" Opacity="0.6"/>
                 </Ellipse.Effect>
                 <Ellipse.RenderTransform>
                     <RotateTransform x:Name="SpinnerRotate" Angle="0"/>
@@ -87,7 +93,7 @@
                 Canvas.Left="70" Canvas.Top="68"
                 Visibility="Collapsed"
                 Opacity="0"
-                Background="#3380FF"
+                Background="{DynamicResource CursorBrush}"
                 CornerRadius="6"
                 Padding="8,4"
                 RenderTransformOrigin="0,0.5">
@@ -95,7 +101,7 @@
                 <ScaleTransform x:Name="BubbleScale" ScaleX="1" ScaleY="1"/>
             </Border.RenderTransform>
             <Border.Effect>
-                <DropShadowEffect Color="#3380FF" BlurRadius="12" ShadowDepth="0" Opacity="0.5"/>
+                <DropShadowEffect Color="{DynamicResource CursorColor}" BlurRadius="12" ShadowDepth="0" Opacity="0.5"/>
             </Border.Effect>
             <TextBlock x:Name="TargetLabelText"
                        Foreground="White"

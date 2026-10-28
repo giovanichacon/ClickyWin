@@ -13,6 +13,7 @@ using System.Windows.Media;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
+using ColorConverter = System.Windows.Media.ColorConverter;
 using FontFamily = System.Windows.Media.FontFamily;
 using System.Windows.Threading;
 using ClickyWindows.Helpers;
@@ -75,8 +76,9 @@ public partial class SetupWindow : Window
         GeneralTab.Header = L.TabGeneral;
         MicTab.Header = L.MicLabel;
         AgentTab.Header = L.TabAgent;
+        CursorTab.Header = L.TabCursor;
         WorkGroup.Header = L.GroupWork;
-        GeneralGroup.Text = DictationGroup.Text = AgentGroup.Text = L.GroupOptions;
+        GeneralGroup.Text = DictationGroup.Text = AgentGroup.Text = CursorGroup.Text = L.GroupOptions;
         Tabs.Tag = $"v{Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)}";
         AutomationProperties.SetHelpText(GeneralTab, L.SubGeneral);
         AutomationProperties.SetHelpText(KeysTab, L.SubKeys);
@@ -85,6 +87,7 @@ public partial class SetupWindow : Window
         AutomationProperties.SetHelpText(DictationTab, L.SubDictation);
         AutomationProperties.SetHelpText(ShortcutsTab, L.SubShortcuts);
         AutomationProperties.SetHelpText(AgentTab, L.SubAgent);
+        AutomationProperties.SetHelpText(CursorTab, L.SubCursor);
         // General opens first, unless the keys still need entering
         Tabs.SelectedItem = string.IsNullOrEmpty(settings.AnthropicApiKey) ? KeysTab : GeneralTab;
         SaveButton.Content = L.Save;
@@ -152,8 +155,16 @@ public partial class SetupWindow : Window
             [.. Models.Where(m => m.id != "claude-haiku-5-5"), ("none", L.EscalationOff)]);
         Fill(LanguageBox, settings.Language,
             ("Auto", L.LanguageAuto), ("es", "Español"), ("en", "English"));
-        Option(AlwaysCursorBox, L.AlwaysShowCursor);
-        AlwaysCursorBox.IsChecked = settings.AlwaysShowCursor;
+        CursorColorGroup.Text = L.CursorColorGroup;
+        Fill(CursorColorBox, settings.CursorColor.ToUpperInvariant(),
+            ("#3380FF", L.ColorBlue), ("#9B6BFF", L.ColorPurple), ("#FF5FA2", L.ColorPink), ("#FF8A3D", L.ColorOrange));
+        foreach (ComboBoxItem item in CursorColorBox.Items)
+            item.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString((string)item.Tag));
+        CursorShowGroup.Text = L.CursorShowGroup;
+        Fill(CursorShowBox, settings.HideCursor ? "pointing" : settings.AlwaysShowCursor ? "always" : "active",
+            ("always", L.CursorAlways), ("active", L.CursorActive), ("pointing", L.CursorPointing));
+        Option(HighlightBox, L.ScreenHighlightLabel);
+        HighlightBox.IsChecked = settings.ScreenHighlight;
         Option(ShowNotchBox, L.ShowNotchLabel);
         ShowNotchBox.IsChecked = settings.ShowNotch;
         Option(RecordingsBox, L.ShowInRecordingsLabel);
@@ -585,7 +596,10 @@ public partial class SetupWindow : Window
         _settings.PrimaryModel = Selected(ModelBox);
         _settings.EscalationModel = Selected(EscalationBox);
         _settings.Language = Selected(LanguageBox);
-        _settings.AlwaysShowCursor = AlwaysCursorBox.IsChecked == true;
+        _settings.AlwaysShowCursor = Selected(CursorShowBox) == "always";
+        _settings.HideCursor = Selected(CursorShowBox) == "pointing";
+        _settings.CursorColor = Selected(CursorColorBox);
+        _settings.ScreenHighlight = HighlightBox.IsChecked == true;
         _settings.ShowNotch = ShowNotchBox.IsChecked == true;
         _settings.ShowInRecordings = RecordingsBox.IsChecked == true;
         _settings.CopyAnswers = CopyAnswersBox.IsChecked == true;
