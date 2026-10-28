@@ -67,7 +67,7 @@ public sealed class WindowsVoiceService(Func<string>? preferredVoice = null, Fun
         try { _synth = new SpeechSynthesizer(); }
         finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
 
-        _synth.SetOutputToDefaultAudioDevice();
+        _synth.SetOutputToDefaultAudioDevice(); // shortcut: ignores Settings > Voice speaker (ElevenLabs only); route via a WaveStream if users ask
         Logger.Log("[TTS] Windows voices: " +
                    string.Join(", ", _synth.GetInstalledVoices().Where(v => v.Enabled).Select(v => v.VoiceInfo.Name)));
         return _synth;

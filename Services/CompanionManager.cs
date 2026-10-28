@@ -36,6 +36,12 @@ public sealed class CompanionManager : IAsyncDisposable
     public event Action<float>? AudioLevelChanged;
     /// <summary>Fires with a short message when a pipeline stage fails.</summary>
     public event Action<string>? FeedbackReceived;
+    /// <summary>Each sentence as Clicky starts saying it (captions); raised on a worker thread.</summary>
+    public event Action<string>? Caption
+    {
+        add => _tts.Caption += value;
+        remove => _tts.Caption -= value;
+    }
     /// <summary>Fires the instant a final transcript arrives — triggers the spinner pulse.</summary>
     public event Action? TranscriptConfirmed;
     /// <summary>Question and spoken answer (for the tray panel and "copy answers").</summary>

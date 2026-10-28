@@ -78,7 +78,7 @@ public partial class SetupWindow : Window
         AgentTab.Header = L.TabAgent;
         CursorTab.Header = L.TabCursor;
         WorkGroup.Header = L.GroupWork;
-        GeneralGroup.Text = DictationGroup.Text = AgentGroup.Text = CursorGroup.Text = L.GroupOptions;
+        GeneralGroup.Text = DictationGroup.Text = AgentGroup.Text = CursorGroup.Text = VoiceGroup.Text = L.GroupOptions;
         Tabs.Tag = $"v{Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)}";
         AutomationProperties.SetHelpText(GeneralTab, L.SubGeneral);
         AutomationProperties.SetHelpText(KeysTab, L.SubKeys);
@@ -111,6 +111,12 @@ public partial class SetupWindow : Window
         // 0.7–1.2 is the range ElevenLabs accepts; older 0.05 steps snap to the nearest pill
         Fill(VoiceSpeedBox, Math.Round(settings.EffectiveVoiceSpeed, 1).ToString("0.0", CultureInfo.InvariantCulture),
             [.. new[] { 0.7, 0.8, 0.9, 1.0, 1.1, 1.2 }.Select(v => (v.ToString("0.0", CultureInfo.InvariantCulture), $"{v:0.0}×"))]);
+        SpeakerLabel.Text = L.SpeakerLabel;
+        Fill(SpeakerBox, settings.SpeakerDeviceId, [("", L.MicDefault), .. AudioCaptureService.ListDevices(NAudio.CoreAudioApi.DataFlow.Render)]);
+        TestSoundButton.Content = L.TestSound;
+        SpeakerHint.Text = L.SpeakerHint;
+        Option(CaptionsBox, L.CaptionsLabel);
+        CaptionsBox.IsChecked = settings.Captions;
         MicHint.Text = L.MicHint;
         MicGroup.Text = L.MicDevices;
         MicLevelGroup.Text = L.MicLevelGroup;
@@ -460,6 +466,15 @@ public partial class SetupWindow : Window
         }
     }
 
+    private async void OnTestSound(object sender, RoutedEventArgs e)
+    {
+        TestSoundButton.IsEnabled = false;
+        var device = Selected(SpeakerBox);
+        try { await Task.Run(() => AudioOutput.PlayTestSoundAsync(device)); }
+        catch (Exception ex) { SetStatus(VoiceNameStatus, L.TestFail(ex.Message), error: true); }
+        finally { TestSoundButton.IsEnabled = true; }
+    }
+
     private async void OnPreview(object sender, RoutedEventArgs e)
     {
         var voice = Selected(VoiceNameBox);
@@ -470,7 +485,7 @@ public partial class SetupWindow : Window
             if (_voiceListIsElevenLabs)
             {
                 using var eleven = new ElevenLabsService(_settings);
-                await eleven.SpeakWithAsync(L.PreviewText, ElevenKeyInUse, voice, speed, null);
+                await eleven.SpeakWithAsync(L.PreviewText, ElevenKeyInUse, voice, speed, Selected(SpeakerBox), null);
             }
             else
             {
@@ -601,6 +616,8 @@ public partial class SetupWindow : Window
         _settings.CursorColor = Selected(CursorColorBox);
         _settings.ScreenHighlight = HighlightBox.IsChecked == true;
         _settings.ShowNotch = ShowNotchBox.IsChecked == true;
+        _settings.SpeakerDeviceId = Selected(SpeakerBox);
+        _settings.Captions = CaptionsBox.IsChecked == true;
         _settings.ShowInRecordings = RecordingsBox.IsChecked == true;
         _settings.CopyAnswers = CopyAnswersBox.IsChecked == true;
         _settings.TutorMode = TutorBox.IsChecked == true;

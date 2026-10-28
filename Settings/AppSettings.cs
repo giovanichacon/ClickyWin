@@ -55,6 +55,10 @@ public sealed class AppSettings
     public bool AlwaysShowCursor { get; set; }
     /// <summary>Black pill at the top center of the screen; click it for the panel.</summary>
     public bool ShowNotch { get; set; } = true;
+    /// <summary>Speaker for Clicky's voice (MMDevice endpoint id); "" = Windows default.</summary>
+    public string SpeakerDeviceId { get; set; } = "";
+    /// <summary>Subtitles at the bottom of the screen while Clicky talks.</summary>
+    public bool Captions { get; set; }
     /// <summary>Clicky's cursor shows only while pointing (wins over AlwaysShowCursor).</summary>
     public bool HideCursor { get; set; }
     /// <summary>Cursor color, "#RRGGBB" (Settings > Cursor offers 4).</summary>

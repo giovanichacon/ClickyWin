@@ -366,6 +366,15 @@
                         </ListBox.ItemsPanel>
                     </ListBox>
 
+                    <TextBlock x:Name="SpeakerLabel" Style="{StaticResource Section}"/>
+                    <DockPanel>
+                        <Button x:Name="TestSoundButton" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnTestSound"/>
+                        <ComboBox x:Name="SpeakerBox"/>
+                    </DockPanel>
+                    <TextBlock x:Name="SpeakerHint" Style="{StaticResource HintText}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+
+                    <TextBlock x:Name="VoiceGroup" Style="{StaticResource Group}"/>
+                    <CheckBox x:Name="CaptionsBox"/>
                 </StackPanel>
                 </Border>
             </TabItem>

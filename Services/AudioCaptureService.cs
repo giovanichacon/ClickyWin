@@ -59,12 +59,12 @@ public sealed class AudioCaptureService : IDisposable
         }
     }
 
-    /// <summary>Active recording devices as (endpoint id, friendly name).</summary>
-    public static List<(string id, string name)> ListDevices()
+    /// <summary>Active recording (or, with Render, playback) devices as (endpoint id, friendly name).</summary>
+    public static List<(string id, string name)> ListDevices(DataFlow flow = DataFlow.Capture)
     {
         using var enumerator = new MMDeviceEnumerator();
         var list = new List<(string, string)>();
-        foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
+        foreach (var device in enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active))
         {
             using (device) list.Add((device.ID, device.FriendlyName));
         }
@@ -72,7 +72,7 @@ public sealed class AudioCaptureService : IDisposable
     }
 
     /// <summary>The configured device if it is still plugged in, else the Windows default.</summary>
-    internal static MMDevice ResolveDevice(MMDeviceEnumerator enumerator, string deviceId)
+    internal static MMDevice ResolveDevice(MMDeviceEnumerator enumerator, string deviceId, DataFlow flow = DataFlow.Capture)
     {
         if (!string.IsNullOrEmpty(deviceId))
         {
@@ -84,11 +84,11 @@ public sealed class AudioCaptureService : IDisposable
             }
             catch (Exception ex)
             {
-                Logger.Log($"[Audio] Saved mic not available ({ex.Message})");
+                Logger.Log($"[Audio] Saved {flow} device not available ({ex.Message})");
             }
-            Logger.Log("[Audio] Saved mic not found — using the Windows default");
+            Logger.Log($"[Audio] Saved {flow} device not found — using the Windows default");
         }
-        return enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console);
+        return enumerator.GetDefaultAudioEndpoint(flow, flow == DataFlow.Render ? Role.Multimedia : Role.Console);
     }
 
     /// <summary>

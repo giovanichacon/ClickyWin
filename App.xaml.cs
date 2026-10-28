@@ -24,6 +24,7 @@ public partial class App
     private KeyboardHookService? _keys;
     private OverlayWindow? _overlay;
     private HighlightWindow? _highlight;
+    private CaptionWindow? _captions;
     private AgentController? _agent;
     private TaskSession? _session;
     private MainWindow? _mainWindow;
@@ -95,6 +96,9 @@ public partial class App
 
         _notch = new NotchWindow(ToggleNotchPanel, OpenSetup);
         _companion.StateChanged += state => Dispatcher.InvokeAsync(() => _notch.SetState(state));
+        _captions = new CaptionWindow();
+        _companion.Caption += text => Dispatcher.InvokeAsync(() => { if (_settings.Captions) _captions.ShowText(text); });
+        _companion.StateChanged += state => Dispatcher.InvokeAsync(() => { if (state != AppState.Speaking) _captions.FadeOut(); });
         _companion.StateChanged += state => Dispatcher.InvokeAsync(() =>
             _highlight?.SetActive(_settings.ScreenHighlight && state is AppState.Listening or AppState.Processing));
         _dictation.StateChanged += state => Dispatcher.InvokeAsync(() => _notch.SetState(state));

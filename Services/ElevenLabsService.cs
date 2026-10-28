@@ -26,20 +26,21 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
 
     /// <summary>Starts an audio stream; append sentences in order, then <see cref="Playback.DrainAsync"/>.</summary>
     public Playback BeginPlayback(Action? onPlaybackStarting) =>
-        BeginPlayback(_settings.ElevenLabsApiKey, _settings.EffectiveElevenLabsVoiceId, _settings.EffectiveVoiceSpeed, onPlaybackStarting);
+        BeginPlayback(_settings.ElevenLabsApiKey, _settings.EffectiveElevenLabsVoiceId, _settings.EffectiveVoiceSpeed,
+            _settings.SpeakerDeviceId, onPlaybackStarting);
 
-    private Playback BeginPlayback(string apiKey, string voiceId, double speed, Action? onPlaybackStarting)
+    private Playback BeginPlayback(string apiKey, string voiceId, double speed, string deviceId, Action? onPlaybackStarting)
     {
-        var playback = new Playback(this, apiKey, voiceId, speed, onPlaybackStarting);
+        var playback = new Playback(this, apiKey, voiceId, speed, deviceId, onPlaybackStarting);
         Interlocked.Exchange(ref _current, playback)?.Stop();
         return playback;
     }
 
-    /// <summary>Speaks one text with an explicit key, voice and speed (Setup preview).</summary>
-    public async Task SpeakWithAsync(string text, string apiKey, string voiceId, double speed,
+    /// <summary>Speaks one text with an explicit key, voice, speed and output device (Setup preview).</summary>
+    public async Task SpeakWithAsync(string text, string apiKey, string voiceId, double speed, string deviceId,
         Action? onPlaybackStarting, CancellationToken ct = default)
     {
-        using var playback = BeginPlayback(apiKey, voiceId, speed, onPlaybackStarting);
+        using var playback = BeginPlayback(apiKey, voiceId, speed, deviceId, onPlaybackStarting);
         await playback.AppendAsync(text, "", ct).ConfigureAwait(false);
         await playback.DrainAsync(ct).ConfigureAwait(false);
     }
@@ -60,11 +61,12 @@ public sealed class ElevenLabsService(AppSettings settings) : IDisposable
             BufferDuration = TimeSpan.FromMinutes(5),
             DiscardOnBufferOverflow = false,
         };
-        private readonly WasapiOut _player = new(AudioClientShareMode.Shared, 100);
+        private readonly WasapiOut _player;
         private bool _playing, _stopped;
 
-        internal Playback(ElevenLabsService owner, string apiKey, string voiceId, double speed, Action? onPlaybackStarting)
+        internal Playback(ElevenLabsService owner, string apiKey, string voiceId, double speed, string deviceId, Action? onPlaybackStarting)
         {
+            _player = AudioOutput.Open(deviceId);
             _owner = owner;
             _apiKey = apiKey.Trim();
             _voiceId = voiceId;

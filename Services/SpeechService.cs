@@ -16,6 +16,12 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
     private readonly WindowsVoiceService _windows = new(() => settings.WindowsVoice, () => settings.EffectiveVoiceSpeed);
     private int _elevenLabsErrorShown;
 
+    /// <summary>
+    /// Each sentence as it is handed to the voice (captions). shortcut: with ElevenLabs it fires when the
+    /// sentence is requested, up to one sentence ahead of the audio; sync to playback if that shows.
+    /// </summary>
+    public event Action<string>? Caption;
+
     private static int _talking;
     private static long _lastTalkEndedTicks;
 
@@ -67,6 +73,7 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
         await foreach (var sentence in sentences.ReadAllAsync(ct).ConfigureAwait(false))
         {
             if (string.IsNullOrWhiteSpace(sentence)) continue;
+            Caption?.Invoke(sentence);
 
             if (playback != null && useElevenLabs)
             {
