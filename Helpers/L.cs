@@ -225,6 +225,7 @@ public static partial class L
     public static string LanguageLabel => T("Idioma", "Language");
     public static string LanguageAuto => T("Automático", "Automatic");
     public static string Save => T("Guardar", "Save");
+    public static string SaveDone => T("Guardado ✓", "Saved ✓");
     public static string Cancel => T("Cancelar", "Cancel");
     public static string SaveFailed(string why) => T($"No se pudo guardar: {why}", $"Could not save: {why}");
 }

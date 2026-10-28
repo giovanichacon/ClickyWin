@@ -292,9 +292,7 @@ public partial class App
         _setupWindow = new SetupWindow(_settings, _keys);
         // Opened from the non-activating notch, Windows keeps it behind the foreground app
         _setupWindow.ContentRendered += (s, _) => BringToFront((Window)s!);
-        try
-        {
-            if (_setupWindow.ShowDialog() == true)
+        _setupWindow.Saved += () =>
             {
                 if (_mic != null) _mic.DeviceId = _settings.MicDeviceId;
                 ApplyCursor();
@@ -308,7 +306,10 @@ public partial class App
                 Logger.Log($"Models: {_settings.EffectivePrimaryModel} → {_settings.EffectiveEscalationModel ?? "no escalation"}");
                 if (_settings.HasRequiredKeys)
                     ShowBalloon(L.Ready(_askText), ToolTipIcon.Info);
-            }
+            };
+        try
+        {
+            _setupWindow.ShowDialog();
         }
         finally
         {

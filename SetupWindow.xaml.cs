@@ -645,8 +645,13 @@ public partial class SetupWindow : Window
         }
 
         L.Setting = _settings.Language;
-        DialogResult = true;
+        Saved?.Invoke(); // the window stays open: Save applies, Close/Cancel leaves
+        SaveButton.Content = L.SaveDone;
+        _ = Task.Delay(1500).ContinueWith(_ => Dispatcher.InvokeAsync(() => SaveButton.Content = L.Save));
     }
+
+    /// <summary>Settings were saved; apply them now (the window stays open).</summary>
+    public event Action? Saved;
 
     private string StoredShortcut(ShortcutAction action)
     {
