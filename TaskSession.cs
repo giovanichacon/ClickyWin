@@ -66,6 +66,7 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         }
         Logger.Log($"[Session] Ended ({reason})");
         agent.Stop(); // ending the session also stops a task in progress
+        companion.Teacher.Stop("session ended");
         agent.InSession = false;
         card.SetIdleBanner(null, null);
         if (voice != null) _ = voice.DisposeAsync().AsTask();
@@ -83,6 +84,10 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         if (!IsActive) return;
         var now = DateTime.UtcNow;
         lock (_gate) _lastActivity = now;
+
+        // A running lesson takes its commands first; over Clicky's voice only a whole-turn command counts
+        if (!agent.IsRunning && companion.Teacher.TryCommand(text, exact: started is { } t && TalkedDuringTurn(t)))
+            return;
 
         // Over Clicky's voice (speakers, no headphones) only "stop" counts; the rest is its own echo
         if (started is { } s && TalkedDuringTurn(s)) // typed test lines (no start time) are never echo

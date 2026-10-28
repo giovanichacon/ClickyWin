@@ -54,6 +54,9 @@ public sealed class CompanionManager : IAsyncDisposable
 
     private CancellationTokenSource? _tutorCts;
 
+    /// <summary>Teacher mode: the step-by-step lesson a [TEACH: goal] reply starts.</summary>
+    public TeacherLesson Teacher { get; }
+
     public CompanionManager(AppSettings settings, AudioCaptureService mic)
     {
         _settings = settings;
@@ -63,6 +66,8 @@ public sealed class CompanionManager : IAsyncDisposable
         _claude = new ClaudeService(settings, _history);
         _tts = new SpeechService(settings);
         _pointer = new PointRefiner(_claude, _screen);
+        Teacher = new TeacherLesson(settings, _claude, _screen, SayAsync, _tts.StopPlayback,
+            (x, y, label) => PointReceived?.Invoke(x, y, label));
     }
 
     public AppState State
@@ -171,6 +176,7 @@ public sealed class CompanionManager : IAsyncDisposable
             Logger.Log($"[Pipeline] Heard: \"{transcript}\"");
             L.NoteSpoken(transcript);
             if (!s.Token.IsCancellationRequested) TranscriptConfirmed?.Invoke();
+            if (Teacher.TryCommand(transcript)) return; // "next", "show me"… go to the running lesson
 
             var screenshots = await screenshotsTask.ConfigureAwait(false);
             await ProcessResponseAsync(s, transcript, screenshots).ConfigureAwait(false);
@@ -307,6 +313,12 @@ public sealed class CompanionManager : IAsyncDisposable
         AnswerReady?.Invoke(transcript, fullText);
 
         if (doFired) return;
+
+        if (ClaudeService.ParseTeachGoal(reply.ToString()) is { } goal && !s.Token.IsCancellationRequested)
+        {
+            Teacher.Start(goal);
+            return;
+        }
 
         // The model said it would act ("I'll open…") but forgot the [DO] tag: act anyway, the Allow card still asks
         if (ClaudeService.PromisesAction(reply.ToString()) && !s.Token.IsCancellationRequested)
@@ -566,6 +578,7 @@ public sealed class CompanionManager : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Teacher.Stop("exit");
         VoiceSession? current;
         lock (_gate) current = _current;
         if (current != null)
