@@ -220,6 +220,15 @@ public sealed class DictationManager : IAsyncDisposable
     }
 
     /// <summary>
+    /// What only the model can fix: fillers, self-corrections, spoken formatting. AssemblyAI already punctuates,
+    /// so anything else skips the ~1 s cleanup pass. A false match only costs that second.
+    /// </summary>
+    internal static readonly System.Text.RegularExpressions.Regex NeedsCleanup = new(
+        @"\b(u+m+|u+h+|e+h+|hmm+|este|o sea|like|you know|I mean|sorry|perdón|mejor dicho|scratch that|" +
+        @"new line|new paragraph|nueva línea|nuevo párrafo|bullet|first|second|primero|segundo)\b|\bno,|, digo,",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
     /// Dictate: faithful cleanup. Prompt: rewrite into a concise AI prompt (always on).
     /// Falls back to the raw transcript if the model is slow, fails or "answers".
     /// </summary>
@@ -227,6 +236,11 @@ public sealed class DictationManager : IAsyncDisposable
     {
         bool prompt = mode == DictationMode.Prompt;
         if (!prompt && !_settings.DictationCleanup) return transcript;
+        if (!prompt && !NeedsCleanup.IsMatch(transcript))
+        {
+            Logger.Log("[Dictate] Nothing to clean, AI pass skipped");
+            return transcript;
+        }
 
         var system = prompt ? _settings.Config.Prompts.PromptText : _settings.Config.Prompts.DictationText;
         if (_settings.Dictionary.Count > 0)
