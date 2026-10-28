@@ -1,5 +1,12 @@
 # ClickyWin — Windows port of farzaa/clicky (C# WPF, .NET 10)
 
+## Next-session to-do (2026-10-28)
+- Installed copy = 1.1.1 (tag release-1.1.1). On `dev`, NOT shipped yet: ff565c6, which adds hands-free ducking (`Services/AudioDucker.cs`, other apps at 20% via per-app volume, re-ducked every 5 s, restored on End; setting `SessionDucking`, Setup checkbox) and the latency fix (`AssemblyAIService.FinishAsync` returns on the forced final turn instead of waiting for Termination, ~1.5 s saved) + `[Timing]` log lines.
+- User said "don't update yet". Ship when asked: bump `<Version>` to 1.1.2, run `installer\build.ps1 -Install`, tag release-1.1.2.
+- Waiting on the user's real-mic test: hands-free with music playing (stop / correction / end session) and dictation latency. Then read the `[Timing]` lines in `%APPDATA%\ClickyWindows\clicky.log` (transcript ms after release, Dictate AI pass ms). If cleanup (~1 s Haiku) dominates, consider skipping it for short phrases.
+- Known risk: a crash mid-session leaves other apps at 20% (nothing restores them on a crash).
+- Tests: no harness in the repo. Use a scratch console app that references bin\Release ClickyWindows.dll plus a fake AssemblyAI WebSocket (HttpListener). Don't run tests with the user's real keys (that was denied). Typed session test: `--session-say "a|b|end session"`.
+
 Hold Ask (Ctrl+Shift+Space) → mic → AssemblyAI → Claude (screenshots) → streamed voice + blue dot pointing.
 Hold Dictate (Ctrl+Win) / Write (Alt+Win) / Prompt (Shift+Win, speech → concise AI prompt) → text typed at the caret. Shortcuts via WH_KEYBOARD_LL (`KeyboardHookService`).
 Base: emreyilmaz46/clicky_windows (MIT), remote `upstream`. Work on branch `dev`; tag `v0.0-upstream` = original.
