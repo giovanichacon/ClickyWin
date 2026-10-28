@@ -386,11 +386,28 @@ public sealed class AssemblyAIService : IAsyncDisposable
         Logger.Error($"[ASR] {reason}");
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>Returns at once; the socket closes in the background (see <see cref="CloseAsync"/>).</summary>
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+        if (Interlocked.Exchange(ref _disposed, 1) == 1) return ValueTask.CompletedTask;
+        _ = Task.Run(CloseAsync);
+        return ValueTask.CompletedTask;
+    }
 
+    private async Task CloseAsync()
+    {
+        // Cancelling before Terminate is sent leaves the session open on AssemblyAI's side, and those count
+        // against the concurrent-session cap (1008) until the server times them out. Ask for a clean end first.
+        _outbox.Writer.TryWrite(new Outgoing(TerminateMessage, WebSocketMessageType.Text)); // no-op after FinishAsync
         _outbox.Writer.TryComplete();
+        try
+        {
+            await _connect.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+            if (_ws.State == WebSocketState.Open)
+                await _ended.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch { /* timeout or failed connect: close anyway */ }
+
         _cts.Cancel();
         try
         {
