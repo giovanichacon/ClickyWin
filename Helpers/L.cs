@@ -181,7 +181,9 @@ public static partial class L
     public static string ReportNone => T("Aún no hay grabaciones: activa la casilla, guarda y dicta.", "No recordings yet: tick the box, save and dictate.");
     public static string ReportProgress(string step) => T($"Transcribiendo de nuevo {step}…", $"Re-transcribing {step}…");
     public static string ReportFailed(string error) => T($"Falló el informe: {error}", $"Report failed: {error}");
-    public static string DictionaryLabel => T("Diccionario personal (una palabra o nombre por línea)", "Personal dictionary (one word or name per line)");
+    public static string DictionaryLabel => T("DICCIONARIO PERSONAL", "PERSONAL DICTIONARY");
+    public static string AddWord => T("Añadir", "Add");
+    public static string AddWordPlaceholder => T("Añade una palabra o nombre", "Add a word or name");
     public static string DictionaryHint => T("Se usan para reconocer y escribir bien nombres, marcas y términos.", "Used to recognize and spell names, brands and terms correctly.");
     public static string VoiceSpeedLabel => T("Velocidad de la voz", "Voice speed");
     public static (string Title, string Desc) CopyAnswersLabel => (T("Copiar respuestas", "Copy answers"), T("Copia cada respuesta al portapapeles.", "Puts each answer on the clipboard."));

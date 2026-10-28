@@ -13,6 +13,7 @@ using System.Windows.Media;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
+using FontFamily = System.Windows.Media.FontFamily;
 using System.Windows.Threading;
 using ClickyWindows.Helpers;
 using ClickyWindows.Services;
@@ -137,7 +138,9 @@ public partial class SetupWindow : Window
         ReportButton.Content = L.ReportButton;
         DictionaryLabel.Text = L.DictionaryLabel;
         DictionaryHint.Text = L.DictionaryHint;
-        DictionaryBox.Text = string.Join(Environment.NewLine, settings.Dictionary);
+        AddWordButton.Content = L.AddWord;
+        AddWordPlaceholder.Text = L.AddWordPlaceholder;
+        foreach (var word in settings.Dictionary) AddWord(word);
 
         // General
         ModelLabel.Text = L.ModelLabel;
@@ -233,6 +236,60 @@ public partial class SetupWindow : Window
     }
 
     // ── Microphone preview ──────────────────────────────────────────────────
+
+    // ── Personal dictionary ─────────────────────────────────────────────────
+
+    private readonly List<string> _words = new();
+
+    private void OnAddWord(object sender, RoutedEventArgs e)
+    {
+        AddWord(AddWordBox.Text);
+        AddWordBox.Clear();
+        AddWordBox.Focus();
+    }
+
+    // Enter adds the word instead of pressing Save
+    private void OnAddWordKey(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        e.Handled = true;
+        OnAddWord(sender, e);
+    }
+
+    private void OnAddWordTextChanged(object sender, TextChangedEventArgs e) =>
+        AddWordPlaceholder.Visibility = AddWordBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    private void AddWord(string text)
+    {
+        var word = text.Trim();
+        if (word.Length == 0 || _words.Contains(word, StringComparer.OrdinalIgnoreCase)) return;
+        _words.Add(word);
+
+        var remove = new Button
+        {
+            Style = (Style)FindResource("IconButton"),
+            Content = "",
+            FontFamily = (FontFamily)FindResource("IconFont"),
+            FontSize = 9,
+            Margin = new Thickness(4, 0, 0, 0),
+        };
+        var chip = new Border
+        {
+            Background = (Brush)FindResource("Surface3"),
+            BorderBrush = (Brush)FindResource("BorderStrong"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(13),
+            Padding = new Thickness(11, 3, 4, 3),
+            Margin = new Thickness(0, 0, 6, 6),
+            Child = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                Children = { new TextBlock { Text = word, VerticalAlignment = VerticalAlignment.Center }, remove },
+            },
+        };
+        remove.Click += (_, _) => { _words.Remove(word); DictionaryChips.Children.Remove(chip); };
+        DictionaryChips.Children.Add(chip);
+    }
 
     private const int MeterBars = 24;
     private double _micLevel;
@@ -523,10 +580,7 @@ public partial class SetupWindow : Window
         _settings.DictationCleanup = CleanupBox.IsChecked == true;
         _settings.LearnWords = LearnBox.IsChecked == true;
         _settings.KeepRecordings = RecordBox.IsChecked == true;
-        _settings.Dictionary = DictionaryBox.Text
-            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        _settings.Dictionary = [.. _words];
 
         _settings.PrimaryModel = Selected(ModelBox);
         _settings.EscalationModel = Selected(EscalationBox);
