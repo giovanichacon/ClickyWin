@@ -73,14 +73,13 @@ public static partial class L
         "mouse_move" or "cursor_position" => T("Moviendo el ratón…", "Moving the mouse…"),
         _ => T("Haciendo clic…", "Clicking…"),
     };
-    public static string AgentAlwaysAllowLabel => T("Permitir siempre que Clicky haga tareas (sin preguntar antes de empezar)", "Always let Clicky do tasks (don't ask before starting)");
+    public static (string Title, string Desc) AgentAlwaysAllowLabel => (T("Permitir siempre las tareas", "Always allow tasks"), T("Clicky empieza las tareas sin preguntar antes.", "Clicky starts tasks without asking first."));
     public static string SessionTitle => T("Clicky te escucha: di qué hacer", "Clicky is listening: say what to do");
     public static string SessionHint => T("Di \"para\" para detener una tarea · \"terminar sesión\" o Esc para salir", "Say \"stop\" to stop a task · \"end session\" or Esc to finish");
     public static string SessionStarted => T("Te escucho.", "I'm listening.");
     public static string SessionEnded => T("Sesión terminada.", "Session ended.");
-    public static string SessionDuckingLabel => T("Bajar la música y los videos durante el modo manos libres",
-        "Turn music and videos down during hands-free mode");
-    public static string AgentQuietLabel => T("Hablar menos al hacer tareas (solo \"Listo\", respuestas y problemas)", "Talk less while doing tasks (just \"Done\", answers and problems)");
+    public static (string Title, string Desc) SessionDuckingLabel => (T("Bajar el volumen", "Lower media volume"), T("Baja la música y los videos durante el modo manos libres.", "Turns music and videos down during hands-free mode."));
+    public static (string Title, string Desc) AgentQuietLabel => (T("Hablar menos", "Talk less"), T("Al hacer tareas solo dice \"Listo\", respuestas y problemas.", "While doing tasks it only says \"Done\", answers and problems."));
     public static string AgentModelLabel => T("Modelo para hacer tareas", "Model for doing tasks");
     public static string AgentCostLabel => T("Costo máximo por tarea (USD)", "Max cost per task (USD)");
 
@@ -173,9 +172,9 @@ public static partial class L
     public static string HotkeyDefault => T("Restablecer", "Reset");
     public static string HotkeyOff => T("Desactivar", "Turn off");
     public static string Off => T("Desactivado", "Off");
-    public static string CleanupLabel => T("Limpiar el dictado con IA (puntuación, muletillas, autocorrecciones)", "Clean up dictation with AI (punctuation, fillers, self-corrections)");
-    public static string LearnLabel => T("Aprender palabras que corrijo justo después de dictar", "Learn words I correct right after dictating");
-    public static string RecordLabel => T("Guardar grabaciones del dictado (solo en este PC) para el informe de precisión", "Keep dictation recordings (on this PC only) for the accuracy report");
+    public static (string Title, string Desc) CleanupLabel => (T("Limpieza con IA", "AI cleanup"), T("Arregla la puntuación y quita muletillas y autocorrecciones.", "Fixes punctuation and removes fillers and self-corrections."));
+    public static (string Title, string Desc) LearnLabel => (T("Aprender correcciones", "Learn corrections"), T("Aprende las palabras que corriges justo después de dictar.", "Learns words you fix right after dictating."));
+    public static (string Title, string Desc) RecordLabel => (T("Guardar grabaciones", "Keep recordings"), T("Solo en este PC, para el informe de precisión.", "On this PC only, for the accuracy report."));
     public static string ReportButton => T("Informe de precisión", "Accuracy report");
     public static string ReportNone => T("Aún no hay grabaciones: activa la casilla, guarda y dicta.", "No recordings yet: tick the box, save and dictate.");
     public static string ReportProgress(string step) => T($"Transcribiendo de nuevo {step}…", $"Re-transcribing {step}…");
@@ -183,15 +182,21 @@ public static partial class L
     public static string DictionaryLabel => T("Diccionario personal (una palabra o nombre por línea)", "Personal dictionary (one word or name per line)");
     public static string DictionaryHint => T("Se usan para reconocer y escribir bien nombres, marcas y términos.", "Used to recognize and spell names, brands and terms correctly.");
     public static string VoiceSpeedLabel => T("Velocidad de la voz", "Voice speed");
-    public static string CopyAnswersLabel => T("Copiar cada respuesta al portapapeles", "Copy each answer to the clipboard");
+    public static (string Title, string Desc) CopyAnswersLabel => (T("Copiar respuestas", "Copy answers"), T("Copia cada respuesta al portapapeles.", "Puts each answer on the clipboard."));
+    public static (string Title, string Desc) TutorOption => (T("Modo tutor", "Tutor mode"), T("Sigue mirando la pantalla y te guía paso a paso.", "Keeps watching the screen and guides you step by step."));
+    public static string GroupOptions => T("OPCIONES", "OPTIONS");
+    public static string GroupWork => T("TRABAJO", "WORK");
+    public static string SubGeneral => T("Modelos, idioma y cómo se comporta Clicky.", "Models, language and how Clicky behaves.");
+    public static string SubKeys => T("Las claves se guardan cifradas solo en este PC.", "Keys are stored encrypted on this PC only.");
+    public static string SubVoice => T("Cómo te responde Clicky en voz alta.", "How Clicky talks back to you.");
+    public static string SubMic => T("Qué micrófono escucha Clicky.", "Which microphone Clicky listens to.");
+    public static string SubDictation => T("Cómo se escribe lo que dictas.", "How your dictation gets typed.");
+    public static string SubShortcuts => T("Mantén pulsada una combinación para usar cada acción.", "Hold a combination to use each action.");
+    public static string SubAgent => T("Clicky puede usar tu ordenador por ti.", "Clicky can use your computer for you.");
     public static string TutorLabel => T("Modo tutor: seguir mirando la pantalla y guiarte paso a paso", "Tutor mode: keep watching the screen and guide you step by step");
-    public static string AutostartLabel => T("Iniciar Clicky con Windows", "Start Clicky with Windows");
-    public static string AlwaysShowCursor => T(
-        "Mostrar siempre el cursor azul (si no, solo mientras usas Clicky)",
-        "Always show the blue cursor (otherwise only while Clicky is active)");
-    public static string ShowNotchLabel => T(
-        "Mostrar la barra de Clicky arriba en el centro de la pantalla",
-        "Show the Clicky bar at the top center of the screen");
+    public static (string Title, string Desc) AutostartLabel => (T("Iniciar con Windows", "Start with Windows"), T("Clicky se abre al iniciar sesión.", "Clicky opens when you sign in."));
+    public static (string Title, string Desc) AlwaysShowCursor => (T("Mostrar siempre el cursor", "Always show the cursor"), T("Si no, el cursor azul solo aparece mientras usas Clicky.", "Otherwise the blue cursor only shows while Clicky is active."));
+    public static (string Title, string Desc) ShowNotchLabel => (T("Barra de Clicky", "Clicky bar"), T("Barra negra arriba en el centro de la pantalla.", "Black bar at the top center of the screen."));
     public static string ModelLabel => T("Modelo diario", "Everyday model");
     public static string EscalationLabel => T("Preguntas difíciles", "Hard questions");
     public static string EscalationOff => T("Desactivado", "Off");

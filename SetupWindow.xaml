@@ -49,7 +49,71 @@
             <Setter Property="Margin" Value="0,0,0,12"/>
             <Setter Property="VerticalAlignment" Value="Top"/>
         </Style>
-        <!-- Tabs as a left sidebar: icon (Tag) + name; the selected page's name is the title -->
+        <!-- Option row: bold title (Content) + gray description (Tag), switch on the right, divider above -->
+        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Border Background="Transparent" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0"
+                                Padding="0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <ContentPresenter TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource TextPrimary}"/>
+                                    <TextBlock Text="{TemplateBinding Tag}" FontSize="12" Foreground="{StaticResource TextTertiary}"
+                                               TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <Border x:Name="Track" Grid.Column="1" Width="32" Height="18" CornerRadius="9"
+                                        Background="{StaticResource Surface3}" BorderBrush="{StaticResource BorderStrong}"
+                                        BorderThickness="1" VerticalAlignment="Center">
+                                    <Ellipse x:Name="Knob" Width="14" Height="14" Fill="White" HorizontalAlignment="Left" Margin="1,0,0,0"/>
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="Knob" Property="Margin" Value="0,0,1,0"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource TextTertiary}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Small uppercase header above a group of rows -->
+        <Style x:Key="Group" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextTertiary}"/>
+            <Setter Property="Margin" Value="0,18,0,8"/>
+        </Style>
+        <!-- Sidebar group header: a disabled tab drawn as a caps label -->
+        <Style x:Key="SideGroup" TargetType="TabItem">
+            <Setter Property="IsEnabled" Value="False"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <ContentPresenter ContentSource="Header" Margin="10,16,0,6" TextElement.FontSize="11"
+                                          TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource TextTertiary}"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Tabs as a left sidebar: icon (Tag) + name; the selected page's name is the title,
+             its AutomationProperties.HelpText the subtitle; the TabControl's Tag (version) sits at the bottom -->
         <Style x:Key="SideTabs" TargetType="TabControl">
             <Setter Property="Template">
                 <Setter.Value>
@@ -61,12 +125,20 @@
                             </Grid.ColumnDefinitions>
                             <Border Background="{StaticResource Surface1}" BorderBrush="{StaticResource BorderSubtle}"
                                     BorderThickness="0,0,1,0">
-                                <StackPanel IsItemsHost="True" Margin="10,12"/>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Bottom" Margin="20,0,0,14" FontSize="11"
+                                               Foreground="{StaticResource TextTertiary}"
+                                               Text="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/>
+                                    <StackPanel IsItemsHost="True" Margin="10,12"/>
+                                </DockPanel>
                             </Border>
                             <DockPanel Grid.Column="1">
-                                <TextBlock DockPanel.Dock="Top" FontSize="20" FontWeight="SemiBold" Margin="28,18,28,10"
+                                <TextBlock DockPanel.Dock="Top" FontSize="20" FontWeight="SemiBold" Margin="28,18,28,0"
                                            Foreground="{StaticResource TextPrimary}"
                                            Text="{Binding SelectedItem.Header, RelativeSource={RelativeSource TemplatedParent}}"/>
+                                <TextBlock DockPanel.Dock="Top" FontSize="12" Margin="28,2,28,14" TextWrapping="Wrap"
+                                           Foreground="{StaticResource TextTertiary}"
+                                           Text="{Binding SelectedItem.(AutomationProperties.HelpText), RelativeSource={RelativeSource TemplatedParent}}"/>
                                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,0,28,8">
                                     <ContentPresenter ContentSource="SelectedContent"/>
                                 </ScrollViewer>
@@ -130,6 +202,42 @@
         <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource BorderSubtle}"/>
 
         <TabControl x:Name="Tabs" Style="{StaticResource SideTabs}" ItemContainerStyle="{StaticResource SideTab}">
+            <!-- General -->
+            <TabItem x:Name="GeneralTab" Tag="&#xE713;">
+                <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock x:Name="ModelLabel" Style="{StaticResource Section}"/>
+                            <ComboBox x:Name="ModelBox"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock x:Name="EscalationLabel" Style="{StaticResource Section}"/>
+                            <ComboBox x:Name="EscalationBox"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock x:Name="LanguageLabel" Style="{StaticResource Section}"/>
+                    <ComboBox x:Name="LanguageBox" HorizontalAlignment="Left" MinWidth="200"/>
+
+                    <TextBlock x:Name="GeneralGroup" Style="{StaticResource Group}"/>
+                    <CheckBox x:Name="AlwaysCursorBox"/>
+                    <CheckBox x:Name="ShowNotchBox"/>
+                    <CheckBox x:Name="CopyAnswersBox"/>
+                    <CheckBox x:Name="TutorBox"/>
+                    <CheckBox x:Name="AutostartBox"/>
+
+                </StackPanel>
+                </Border>
+            </TabItem>
+
+            <TabItem x:Name="ClickyGroup" Style="{StaticResource SideGroup}" Header="CLICKY"/>
+
             <!-- Keys -->
             <TabItem x:Name="KeysTab" Tag="&#xE192;">
                 <Border Style="{StaticResource Card}">
@@ -198,6 +306,28 @@
                 </Border>
             </TabItem>
 
+            <!-- Dictation -->
+            <TabItem x:Name="DictationTab" Tag="&#xE70F;">
+                <Border Style="{StaticResource Card}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock x:Name="DictationGroup" Style="{StaticResource Group}"/>
+                        <CheckBox x:Name="CleanupBox"/>
+                        <CheckBox x:Name="LearnBox"/>
+                        <CheckBox x:Name="RecordBox"/>
+                        <DockPanel>
+                            <Button x:Name="ReportButton" DockPanel.Dock="Left" Click="OnAccuracyReport"/>
+                            <TextBlock x:Name="ReportStatus" Style="{StaticResource Status}" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBlock x:Name="DictionaryLabel" Style="{StaticResource Section}" Margin="0,16,0,4"/>
+                    </StackPanel>
+                    <TextBlock x:Name="DictionaryHint" DockPanel.Dock="Bottom" Style="{StaticResource Status}"/>
+                    <TextBox x:Name="DictionaryBox" Height="200" AcceptsReturn="True" TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"/>
+                </DockPanel>
+                </Border>
+            </TabItem>
+
             <!-- Shortcuts -->
             <TabItem x:Name="ShortcutsTab" Tag="&#xE765;">
                 <Border Style="{StaticResource Card}">
@@ -239,59 +369,7 @@
                 </Border>
             </TabItem>
 
-            <!-- Dictation -->
-            <TabItem x:Name="DictationTab" Tag="&#xE70F;">
-                <Border Style="{StaticResource Card}">
-                <DockPanel>
-                    <StackPanel DockPanel.Dock="Top">
-                        <CheckBox x:Name="CleanupBox"/>
-                        <CheckBox x:Name="LearnBox"/>
-                        <DockPanel Margin="0,4,0,0">
-                            <Button x:Name="ReportButton" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnAccuracyReport"/>
-                            <CheckBox x:Name="RecordBox" VerticalAlignment="Center"/>
-                        </DockPanel>
-                        <TextBlock x:Name="ReportStatus" Style="{StaticResource Status}"/>
-                        <TextBlock x:Name="DictionaryLabel" Style="{StaticResource Section}" Margin="0,16,0,4"/>
-                    </StackPanel>
-                    <TextBlock x:Name="DictionaryHint" DockPanel.Dock="Bottom" Style="{StaticResource Status}"/>
-                    <TextBox x:Name="DictionaryBox" Height="200" AcceptsReturn="True" TextWrapping="NoWrap"
-                             VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"/>
-                </DockPanel>
-                </Border>
-            </TabItem>
-
-            <!-- General -->
-            <TabItem x:Name="GeneralTab" Tag="&#xE713;">
-                <Border Style="{StaticResource Card}">
-                <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
-                            <TextBlock x:Name="ModelLabel" Style="{StaticResource Section}"/>
-                            <ComboBox x:Name="ModelBox"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock x:Name="EscalationLabel" Style="{StaticResource Section}"/>
-                            <ComboBox x:Name="EscalationBox"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <TextBlock x:Name="LanguageLabel" Style="{StaticResource Section}"/>
-                    <ComboBox x:Name="LanguageBox" HorizontalAlignment="Left" MinWidth="200"/>
-
-                    <CheckBox x:Name="AlwaysCursorBox" Margin="0,16,0,0"/>
-                    <CheckBox x:Name="ShowNotchBox"/>
-                    <CheckBox x:Name="CopyAnswersBox"/>
-                    <CheckBox x:Name="TutorBox"/>
-                    <CheckBox x:Name="AutostartBox"/>
-
-                </StackPanel>
-                </Border>
-            </TabItem>
+            <TabItem x:Name="WorkGroup" Style="{StaticResource SideGroup}" Header="WORK"/>
 
             <!-- Agent (computer use) -->
             <TabItem x:Name="AgentTab" Tag="&#xE99A;">
@@ -313,7 +391,8 @@
                             <ComboBox x:Name="AgentCostBox"/>
                         </StackPanel>
                     </Grid>
-                    <CheckBox x:Name="AgentAlwaysBox" Margin="0,16,0,0"/>
+                    <TextBlock x:Name="AgentGroup" Style="{StaticResource Group}"/>
+                    <CheckBox x:Name="AgentAlwaysBox"/>
                     <CheckBox x:Name="AgentQuietBox"/>
                     <CheckBox x:Name="SessionDuckingBox"/>
                 </StackPanel>

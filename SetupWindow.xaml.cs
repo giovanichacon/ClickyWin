@@ -1,7 +1,10 @@
 using System.Globalization;
+using System.Reflection;
+using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
 using Button = System.Windows.Controls.Button;
+using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
 using TextBox = System.Windows.Controls.TextBox;
 using System.Windows.Media;
@@ -68,6 +71,18 @@ public partial class SetupWindow : Window
         GeneralTab.Header = L.TabGeneral;
         MicTab.Header = L.MicLabel;
         AgentTab.Header = L.TabAgent;
+        WorkGroup.Header = L.GroupWork;
+        GeneralGroup.Text = DictationGroup.Text = AgentGroup.Text = L.GroupOptions;
+        Tabs.Tag = $"v{Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)}";
+        AutomationProperties.SetHelpText(GeneralTab, L.SubGeneral);
+        AutomationProperties.SetHelpText(KeysTab, L.SubKeys);
+        AutomationProperties.SetHelpText(VoiceTab, L.SubVoice);
+        AutomationProperties.SetHelpText(MicTab, L.SubMic);
+        AutomationProperties.SetHelpText(DictationTab, L.SubDictation);
+        AutomationProperties.SetHelpText(ShortcutsTab, L.SubShortcuts);
+        AutomationProperties.SetHelpText(AgentTab, L.SubAgent);
+        // General opens first, unless the keys still need entering
+        Tabs.SelectedItem = string.IsNullOrEmpty(settings.AnthropicApiKey) ? KeysTab : GeneralTab;
         SaveButton.Content = L.Save;
         CancelButton.Content = L.Cancel;
 
@@ -109,11 +124,11 @@ public partial class SetupWindow : Window
         SetShortcut(ShortcutAction.Prompt, settings.EffectivePromptHotkey);
 
         // Dictation
-        CleanupBox.Content = L.CleanupLabel;
+        Option(CleanupBox, L.CleanupLabel);
         CleanupBox.IsChecked = settings.DictationCleanup;
-        LearnBox.Content = L.LearnLabel;
+        Option(LearnBox, L.LearnLabel);
         LearnBox.IsChecked = settings.LearnWords;
-        RecordBox.Content = L.RecordLabel;
+        Option(RecordBox, L.RecordLabel);
         RecordBox.IsChecked = settings.KeepRecordings;
         ReportButton.Content = L.ReportButton;
         DictionaryLabel.Text = L.DictionaryLabel;
@@ -129,15 +144,15 @@ public partial class SetupWindow : Window
             [.. Models.Where(m => m.id != "claude-haiku-5-5"), ("none", L.EscalationOff)]);
         Fill(LanguageBox, settings.Language,
             ("Auto", L.LanguageAuto), ("es", "Español"), ("en", "English"));
-        AlwaysCursorBox.Content = L.AlwaysShowCursor;
+        Option(AlwaysCursorBox, L.AlwaysShowCursor);
         AlwaysCursorBox.IsChecked = settings.AlwaysShowCursor;
-        ShowNotchBox.Content = L.ShowNotchLabel;
+        Option(ShowNotchBox, L.ShowNotchLabel);
         ShowNotchBox.IsChecked = settings.ShowNotch;
-        CopyAnswersBox.Content = L.CopyAnswersLabel;
+        Option(CopyAnswersBox, L.CopyAnswersLabel);
         CopyAnswersBox.IsChecked = settings.CopyAnswers;
-        TutorBox.Content = L.TutorLabel;
+        Option(TutorBox, L.TutorOption);
         TutorBox.IsChecked = settings.TutorMode;
-        AutostartBox.Content = L.AutostartLabel;
+        Option(AutostartBox, L.AutostartLabel);
         AutostartBox.IsChecked = Autostart.IsEnabled;
         AgentModelLabel.Text = L.AgentModelLabel;
         Fill(AgentModelBox, settings.EffectiveAgentModel,
@@ -145,11 +160,11 @@ public partial class SetupWindow : Window
         AgentCostLabel.Text = L.AgentCostLabel;
         Fill(AgentCostBox, settings.EffectiveAgentCostCap.ToString("0.00", CultureInfo.InvariantCulture),
             ("0.25", "$0.25"), ("0.50", "$0.50"), ("1.00", "$1.00"), ("2.00", "$2.00"));
-        AgentAlwaysBox.Content = L.AgentAlwaysAllowLabel;
+        Option(AgentAlwaysBox, L.AgentAlwaysAllowLabel);
         AgentAlwaysBox.IsChecked = settings.AgentAlwaysAllow;
-        AgentQuietBox.Content = L.AgentQuietLabel;
+        Option(AgentQuietBox, L.AgentQuietLabel);
         AgentQuietBox.IsChecked = settings.AgentQuiet;
-        SessionDuckingBox.Content = L.SessionDuckingLabel;
+        Option(SessionDuckingBox, L.SessionDuckingLabel);
         SessionDuckingBox.IsChecked = settings.SessionDucking;
 
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
@@ -181,6 +196,12 @@ public partial class SetupWindow : Window
             if (value == selected) box.SelectedItem = item;
         }
         if (box.SelectedItem == null && box.Items.Count > 0) box.SelectedIndex = 0;
+    }
+
+    private static void Option(CheckBox box, (string Title, string Desc) text)
+    {
+        box.Content = text.Title;
+        box.Tag = text.Desc;
     }
 
     private static string Selected(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
