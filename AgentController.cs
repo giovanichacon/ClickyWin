@@ -31,8 +31,9 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
     public bool InSession { get; set; }
 
     /// <param name="preApproved">Hands-free session: starting the session was the approval (no card, no countdown).</param>
-    public async Task RunAsync(string task, string request, bool preApproved = false)
+    public async Task RunAsync(DoTask job, string request, bool preApproved = false)
     {
+        var task = job.Task;
         if (Interlocked.Exchange(ref _running, 1) == 1)
         {
             Logger.Log("[Agent] Already working — ignoring a new task");
