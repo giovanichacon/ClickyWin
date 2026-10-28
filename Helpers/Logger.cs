@@ -13,8 +13,7 @@ namespace ClickyWindows.Helpers;
 /// </summary>
 public static class Logger
 {
-    private static readonly string LogDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClickyWindows");
+    private static readonly string LogDir = Settings.AppSettings.Folder;
     private static string LogPath = Path.Combine(LogDir, "clicky.log");
 
     private static readonly Channel<string> Queue =

@@ -16,7 +16,9 @@ public sealed class AppSettings
 {
     private static readonly byte[] Entropy = "ClickyWindows.v1"u8.ToArray();
 
-    public static string Folder { get; } = Path.Combine(
+    /// <summary>Test runs set CLICKY_DATA_DIR: own settings, keys and log, beside a running Clicky.</summary>
+    public static string? TestFolder { get; } = Environment.GetEnvironmentVariable("CLICKY_DATA_DIR") is { Length: > 0 } dir ? dir : null;
+    public static string Folder { get; } = TestFolder ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClickyWindows");
     public static string FilePath { get; } = Path.Combine(Folder, "settings.json");
 

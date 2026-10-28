@@ -45,7 +45,8 @@ public partial class App
 
         // Single-instance guard — before touching Logger, so a second launch can't rotate
         // the running instance's log file.
-        _singleInstanceMutex = new System.Threading.Mutex(true, "ClickyWindows_SingleInstance", out bool isFirst);
+        _singleInstanceMutex = new System.Threading.Mutex(true,
+            "ClickyWindows_SingleInstance" + (AppSettings.TestFolder != null ? "_Test" : ""), out bool isFirst);
         if (!isFirst)
         {
             _singleInstanceMutex.Dispose();
