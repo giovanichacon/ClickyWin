@@ -14,6 +14,7 @@ namespace ClickyWindows;
 public sealed class AgentController(AppSettings settings, CompanionManager companion, AgentCard card)
 {
     private readonly UserInputWatcher _watcher = new();
+    private readonly ClaudeCodeBridge _engineer = new(); // keeps the Claude Code session id for follow-ups
     private int _running;
     private CancellationTokenSource? _cts;
 
@@ -31,7 +32,19 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
     public bool InSession { get; set; }
 
     /// <param name="preApproved">Hands-free session: starting the session was the approval (no card, no countdown).</param>
-    public async Task RunAsync(string task, string request, bool preApproved = false)
+    public Task RunAsync(string task, string request, bool preApproved = false) =>
+        RunAsync(task, request, preApproved, null);
+
+    /// <summary>
+    /// Engineer rank: the task goes to the user's own Claude Code CLI (code, files, scripts, repos) instead
+    /// of the screen agent. Same one-at-a-time rule, Allow card and "stop" as <see cref="RunAsync(string, string, bool)"/>.
+    /// </summary>
+    /// <param name="folder">Project folder; null picks it from the task ("in ClickyWin") or the workspace root.</param>
+    public Task RunEngineerAsync(string task, string request, bool preApproved = false, string? folder = null) =>
+        RunAsync(task, request, preApproved, cts => EngineerAsync(task, folder, cts.Token));
+
+    private async Task RunAsync(string task, string request, bool preApproved,
+        Func<CancellationTokenSource, Task<AgentResult>>? work)
     {
         if (Interlocked.Exchange(ref _running, 1) == 1)
         {
@@ -61,7 +74,7 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
                 }
             }
 
-            if (!preApproved &&
+            if (!preApproved && work == null && // the countdown is for letting go of the mouse; Claude Code doesn't need it
                 !await card.CountdownAsync(task, settings.Config.Agent.CountdownSeconds, cts.Token).ConfigureAwait(false))
             {
                 Logger.Log("[Agent] Cancelled during the countdown");
@@ -69,7 +82,7 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
                 return;
             }
 
-            var result = await WorkAsync(task, cts).ConfigureAwait(false);
+            var result = await (work ?? (c => WorkAsync(task, c)))(cts).ConfigureAwait(false);
             card.Close(result.Summary);
             Finished?.Invoke(request, result.Summary);
             companion.NoteTaskResult($"(Task {result.Outcome}: {result.Summary})"); // so follow-ups know what happened
@@ -88,6 +101,30 @@ public sealed class AgentController(AppSettings settings, CompanionManager compa
             _cts = null;
             CurrentTask = "";
             Volatile.Write(ref _running, 0);
+        }
+    }
+
+    private async Task<AgentResult> EngineerAsync(string task, string? folder, CancellationToken ct)
+    {
+        folder ??= ClaudeCodeBridge.FolderFor(task);
+        string hint = L.EngineerWorkingHint;
+        card.ShowWorking(task, "", hint);
+        _ = companion.SayAsync(L.EngineerStarting(Path.GetFileName(folder)));
+        void OnProgress(string step) => card.ShowWorking(task, step, hint);
+        void OnMilestone(string text) => _ = companion.SayAsync(text);
+        _engineer.Progress += OnProgress;
+        _engineer.Milestone += OnMilestone;
+        try
+        {
+            var r = await Task.Run(() => _engineer.RunAsync(task, folder, ct)).ConfigureAwait(false);
+            var outcome = ct.IsCancellationRequested ? AgentOutcome.Stopped : r.Ok ? AgentOutcome.Done : AgentOutcome.Failed;
+            Logger.Log($"[Engineer] Result: {(r.Text.Length > 200 ? r.Text[..200] + "…" : r.Text)}");
+            return new AgentResult(outcome, ClaudeCodeBridge.Spoken(r.Text), r.Cost, 0, Report: true);
+        }
+        finally
+        {
+            _engineer.Progress -= OnProgress;
+            _engineer.Milestone -= OnMilestone;
         }
     }
 

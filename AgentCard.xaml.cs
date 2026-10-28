@@ -86,8 +86,8 @@ public partial class AgentCard : Window
     }
 
     /// <summary>The click-through banner while Clicky works.</summary>
-    public void ShowWorking(string task, string step) => Dispatcher.InvokeAsync(() =>
-        ShowMode(task, step, L.AgentWorkingHint, null, null, null, interactive: false));
+    public void ShowWorking(string task, string step, string? hint = null) => Dispatcher.InvokeAsync(() =>
+        ShowMode(task, step, hint ?? L.AgentWorkingHint, null, null, null, interactive: false));
 
     public void Close(string? finalMessage = null) => Dispatcher.InvokeAsync(async () =>
     {
