@@ -29,6 +29,7 @@ public sealed class ComputerAgent(AppSettings settings)
     private const string ToolsetName = "computer";
     private const string AskUserTool = "ask_user";
     private const string RememberTool = "remember";
+    private const string HandOffTool = "hand_off";
     private const string ReportTag = "[REPORT]";
     private const int MaxNotes = 40;
     private const string HaltText = "Not executed: an earlier computer action in this turn failed.";
@@ -66,6 +67,8 @@ public sealed class ComputerAgent(AppSettings settings)
     {
         var cfg = settings.Config.Agent;
         var model = settings.EffectiveAgentModel;
+        // The cheap model may hand a task it can't manage to the "Hard questions" model, once
+        var stronger = FallbackModels.Contains(model) ? null : settings.EffectiveEscalationModel;
         var client = new AnthropicClient
         {
             ApiKey = settings.AnthropicApiKey,
@@ -101,7 +104,7 @@ public sealed class ComputerAgent(AppSettings settings)
                     MaxTokens = cfg.MaxTokens,
                     System = SystemPrompt(),
                     Messages = messages,
-                    Tools = Tools(),
+                    Tools = Tools(handOff: stronger != null),
                     OutputConfig = new BetaOutputConfig { Effort = cfg.Effort },
                     CacheControl = new BetaCacheControlEphemeral(),
                 };
@@ -149,6 +152,32 @@ public sealed class ComputerAgent(AppSettings settings)
                 }
 
                 if (note.Length > 0) Progress?.Invoke(note);
+
+                if (stronger != null && calls.FirstOrDefault(c => c.Name == HandOffTool) is { } handOff)
+                {
+                    // A fresh start, not the history: the other model can't continue this one's thinking blocks
+                    var why = Str(handOff.Input, "progress") ?? "";
+                    Logger.Log($"[Agent] {model} handed the task to {stronger}: \"{why}\"");
+                    (model, stronger) = (stronger, null);
+                    var now = Capture();
+                    messages =
+                    [
+                        new()
+                        {
+                            Role = Role.User,
+                            Content = new List<BetaContentBlockParam>
+                            {
+                                new BetaTextBlockParam
+                                {
+                                    Text = $"Task: {task}\n\nA faster model started this task and handed it to you. " +
+                                           $"What it did and where it got stuck: {why}\n\nThe current screen ({_width}x{_height} pixels):",
+                                },
+                                Image(now),
+                            },
+                        },
+                    ];
+                    continue;
+                }
 
                 var results = new List<BetaContentBlockParam>();
                 bool halted = false;
@@ -219,7 +248,33 @@ public sealed class ComputerAgent(AppSettings settings)
         return prompt.ToString();
     }
 
-    private static List<BetaToolUnion> Tools() =>
+    private static List<BetaToolUnion> Tools(bool handOff)
+    {
+        List<BetaToolUnion> tools = [.. BaseTools()];
+        if (handOff)
+            tools.Add(new BetaTool
+            {
+                Name = HandOffTool,
+                Description = "Hand the task to a stronger model, which continues it from the current screen. Use it " +
+                              "when you are stuck (the same step failed twice, or you don't know how to go on) or the " +
+                              "task needs careful multi-step reasoning, instead of guessing or asking the user. Once only.",
+                InputSchema = new()
+                {
+                    Properties = new Dictionary<string, JsonElement>
+                    {
+                        ["progress"] = JsonSerializer.SerializeToElement(new
+                        {
+                            type = "string",
+                            description = "What you did so far, what failed, and what is left.",
+                        }),
+                    },
+                    Required = ["progress"],
+                },
+            });
+        return tools;
+    }
+
+    private static List<BetaToolUnion> BaseTools() =>
     [
         new BetaComputerToolset20260801(),
         new BetaTool
