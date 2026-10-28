@@ -18,7 +18,10 @@ public partial class NotchWindow : Window
     private readonly Action _togglePanel;
     private readonly Action _openSettings;
     private bool _idle = true;
-    private readonly System.Windows.Threading.DispatcherTimer _closeTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    // Hover is polled: mouse enter/leave was unreliable on this non-activating window and as it resized
+    private readonly System.Windows.Threading.DispatcherTimer _hoverTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
+    private bool _hover;
+    private int _misses;
 
     public NotchWindow(Action togglePanel, Action openSettings)
     {
@@ -34,7 +37,8 @@ public partial class NotchWindow : Window
             Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_EXCLUDEFROMCAPTURE);
         };
         SizeChanged += (_, _) => Place();
-        _closeTimer.Tick += (_, _) => Apply();
+        _hoverTimer.Tick += (_, _) => PollHover();
+        IsVisibleChanged += (_, _) => { if (IsVisible) _hoverTimer.Start(); else _hoverTimer.Stop(); };
         SetState(AppState.Idle);
     }
 
@@ -61,25 +65,30 @@ public partial class NotchWindow : Window
         StatusGlow.Color = color;
 
         _idle = state == AppState.Idle;
-        OnHover(this, null);
+        Apply();
     }
 
     /// <summary>Same color as the cursor (Settings > Cursor).</summary>
     public void SetIconColor(Color color) => IdleIcon.Fill = new SolidColorBrush(color);
 
     // Idle: a thin line; hover grows it into the cursor icon + gear. Busy: dot + status text + gear.
-    private void OnHover(object sender, System.Windows.Input.MouseEventArgs? e)
+    private void PollHover()
     {
-        // Closing waits a moment so a pass over the edge doesn't make it flicker
-        _closeTimer.Stop();
-        if (e != null && !Root.IsMouseOver) { _closeTimer.Start(); return; }
+        if (!Win32.GetCursorPos(out var p) || ActualWidth == 0) return;
+        var tl = PointToScreen(new System.Windows.Point(0, 0));
+        var br = PointToScreen(new System.Windows.Point(ActualWidth, ActualHeight));
+        bool inside = p.X >= tl.X - 8 && p.X <= br.X + 8 && p.Y <= br.Y + 4;
+        // Closing waits ~360 ms so a pass over the edge doesn't make it flicker
+        _misses = inside ? 0 : _misses + 1;
+        bool hover = inside || (_hover && _misses < 3);
+        if (hover == _hover) return;
+        _hover = hover;
         Apply();
     }
 
     private void Apply()
     {
-        _closeTimer.Stop();
-        bool open = !_idle || Root.IsMouseOver;
+        bool open = !_idle || _hover;
         static Visibility Show(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
         StatusDot.Visibility = StatusText.Visibility = Show(!_idle);
         IdleIcon.Visibility = Show(_idle && open);

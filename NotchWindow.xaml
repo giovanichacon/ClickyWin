@@ -17,7 +17,7 @@
     <!-- Black pill hanging from the top edge (like the HeyClicky notch). Idle: a thin line that grows into
          icon + gear on hover. Busy: status dot + text, gear on the right. Click opens the panel below it.
          The almost-transparent root keeps a hover target taller than the line. -->
-    <Grid x:Name="Root" Background="#01000000" MinHeight="10" MouseEnter="OnHover" MouseLeave="OnHover">
+    <Grid x:Name="Root" Background="#01000000" MinHeight="10">
     <Border x:Name="Pill" Background="Black" CornerRadius="0,0,12,12" Padding="12,0,4,0" Height="24"
             MinWidth="170" Cursor="Hand" MouseLeftButtonUp="OnPillClick" VerticalAlignment="Top"
             BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,1,1">
