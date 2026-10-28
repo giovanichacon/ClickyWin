@@ -105,8 +105,9 @@ public partial class SetupWindow : Window
         VoiceNameLabel.Text = L.VoiceNameLabel;
         PreviewButton.Content = L.Preview;
         VoiceSpeedLabel.Text = L.VoiceSpeedLabel;
-        VoiceSpeedSlider.Value = settings.EffectiveVoiceSpeed;
-        VoiceSpeedValue.Text = $"{settings.EffectiveVoiceSpeed:0.00}×";
+        // 0.7–1.2 is the range ElevenLabs accepts; older 0.05 steps snap to the nearest pill
+        Fill(VoiceSpeedBox, Math.Round(settings.EffectiveVoiceSpeed, 1).ToString("0.0", CultureInfo.InvariantCulture),
+            [.. new[] { 0.7, 0.8, 0.9, 1.0, 1.1, 1.2 }.Select(v => (v.ToString("0.0", CultureInfo.InvariantCulture), $"{v:0.0}×"))]);
         MicHint.Text = L.MicHint;
         MicGroup.Text = L.MicDevices;
         MicLevelGroup.Text = L.MicLevelGroup;
@@ -405,10 +406,7 @@ public partial class SetupWindow : Window
         if (_loaded) RefreshVoiceNames();
     }
 
-    private void OnVoiceSpeedChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (VoiceSpeedValue != null) VoiceSpeedValue.Text = $"{e.NewValue:0.00}×";
-    }
+    private double VoiceSpeed => double.Parse(Selected(VoiceSpeedBox), CultureInfo.InvariantCulture);
 
     private string ElevenKeyInUse =>
         string.IsNullOrWhiteSpace(ElevenKey.Password) ? _settings.ElevenLabsApiKey : ElevenKey.Password.Trim();
@@ -452,7 +450,7 @@ public partial class SetupWindow : Window
     private async void OnPreview(object sender, RoutedEventArgs e)
     {
         var voice = Selected(VoiceNameBox);
-        double speed = VoiceSpeedSlider.Value;
+        double speed = VoiceSpeed;
         PreviewButton.IsEnabled = false;
         try
         {
@@ -568,7 +566,7 @@ public partial class SetupWindow : Window
             if (_voiceListIsElevenLabs) _settings.ElevenLabsVoiceId = Selected(VoiceNameBox);
             else _settings.WindowsVoice = Selected(VoiceNameBox);
         }
-        _settings.VoiceSpeed = Math.Round(VoiceSpeedSlider.Value, 2);
+        _settings.VoiceSpeed = VoiceSpeed;
         _settings.MicDeviceId = Selected(MicBox);
 
         // Stored empty when equal to the shipped default, so a new default reaches the user

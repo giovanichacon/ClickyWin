@@ -120,6 +120,31 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- List item as a pill chip (accent when selected) -->
+        <Style x:Key="Pill" TargetType="ListBoxItem">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd" Background="{StaticResource Surface3}" BorderBrush="{StaticResource BorderStrong}"
+                                BorderThickness="1" CornerRadius="14" Padding="14,5" Margin="0,0,6,6">
+                            <ContentPresenter TextElement.Foreground="{StaticResource TextSecondary}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource TextTertiary}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter Property="TextElement.Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- Small uppercase header above a group of rows -->
         <Style x:Key="Group" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
@@ -311,12 +336,12 @@
                     <TextBlock x:Name="VoiceNameStatus" Style="{StaticResource Status}"/>
 
                     <TextBlock x:Name="VoiceSpeedLabel" Style="{StaticResource Section}"/>
-                    <DockPanel>
-                        <TextBlock x:Name="VoiceSpeedValue" DockPanel.Dock="Right" Width="44" Margin="8,0,0,0" TextAlignment="Right"
-                                   Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
-                        <Slider x:Name="VoiceSpeedSlider" Minimum="0.7" Maximum="1.2" TickFrequency="0.05"
-                                IsSnapToTickEnabled="True" ValueChanged="OnVoiceSpeedChanged"/>
-                    </DockPanel>
+                    <ListBox x:Name="VoiceSpeedBox" ItemContainerStyle="{StaticResource Pill}" Background="Transparent"
+                             BorderThickness="0" Padding="0">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
 
                 </StackPanel>
                 </Border>
