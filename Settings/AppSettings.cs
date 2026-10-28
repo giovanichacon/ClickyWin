@@ -75,6 +75,8 @@ public sealed class AppSettings
     public double AgentCostCap { get; set; }
     /// <summary>Talk less around tasks: no spoken line before acting, one word after (answers and problems are still spoken).</summary>
     public bool AgentQuiet { get; set; } = true;
+    /// <summary>Hands-free session: turn other apps' audio down while the mic listens.</summary>
+    public bool SessionDucking { get; set; } = true;
     /// <summary>Facts Clicky saved with its remember tool (which Chrome profile to use, …); sent with every task.</summary>
     public List<string> AgentNotes { get; set; } = [];
 

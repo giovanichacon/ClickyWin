@@ -46,6 +46,7 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             }
         }
         Logger.Log("[Session] Started");
+        if (settings.SessionDucking) AudioDucker.Duck();
         agent.InSession = true;
         card.SetIdleBanner(L.SessionTitle, L.SessionHint);
         _ = companion.SayAsync(L.SessionStarted);
@@ -68,6 +69,7 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         agent.InSession = false;
         card.SetIdleBanner(null, null);
         if (voice != null) _ = voice.DisposeAsync().AsTask();
+        AudioDucker.Restore();
         _ = companion.SayAsync(L.SessionEnded);
     }
 
@@ -152,6 +154,7 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+                if (settings.SessionDucking) AudioDucker.Duck(); // apps that started playing since (a task opened YouTube)
                 if (agent.IsRunning || companion.State != AppState.Idle)
                 {
                     lock (_gate) _lastActivity = DateTime.UtcNow; // working or talking is not silence

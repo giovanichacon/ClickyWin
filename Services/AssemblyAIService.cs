@@ -48,6 +48,8 @@ public sealed class AssemblyAIService : IAsyncDisposable
     private readonly Channel<Outgoing> _outbox =
         Channel.CreateUnbounded<Outgoing>(new UnboundedChannelOptions { SingleReader = true });
     private readonly TaskCompletionSource _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _finalTurn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _turnOpen, _finishing; // under _turnsLock
 
     private readonly SortedDictionary<int, string> _turns = new();
     private readonly object _turnsLock = new();
@@ -225,13 +227,21 @@ public sealed class AssemblyAIService : IAsyncDisposable
     /// </summary>
     public async Task<string> FinishAsync(TimeSpan timeout, CancellationToken ct)
     {
+        bool open;
+        lock (_turnsLock)
+        {
+            _finishing = true;
+            open = _turnOpen;
+        }
         _outbox.Writer.TryWrite(new Outgoing(ForceEndpointMessage, WebSocketMessageType.Text));
         _outbox.Writer.TryWrite(new Outgoing(TerminateMessage, WebSocketMessageType.Text));
         _outbox.Writer.TryComplete();
 
         try
         {
-            await _ended.Task.WaitAsync(timeout, ct).ConfigureAwait(false);
+            // The forced end of the open turn carries the last words; Termination can come a second later
+            var done = open ? Task.WhenAny(_ended.Task, _finalTurn.Task) : _ended.Task;
+            await done.WaitAsync(timeout, ct).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -311,7 +321,11 @@ public sealed class AssemblyAIService : IAsyncDisposable
                 string text = node["transcript"]?.GetValue<string>() ?? "";
                 bool endOfTurn = node["end_of_turn"]?.GetValue<bool>() ?? false;
                 lock (_turnsLock)
+                {
                     _turns[order] = text; // later messages for a turn supersede earlier ones
+                    _turnOpen = !endOfTurn && text.Length > 0;
+                    if (endOfTurn && _finishing) _finalTurn.TrySetResult();
+                }
                 if (endOfTurn)
                 {
                     Logger.Log($"[ASR] Turn {order} ended: \"{text}\"");

@@ -142,6 +142,8 @@ public partial class SetupWindow : Window
         AgentAlwaysBox.IsChecked = settings.AgentAlwaysAllow;
         AgentQuietBox.Content = L.AgentQuietLabel;
         AgentQuietBox.IsChecked = settings.AgentQuiet;
+        SessionDuckingBox.Content = L.SessionDuckingLabel;
+        SessionDuckingBox.IsChecked = settings.SessionDucking;
 
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _meterTimer.Tick += (_, _) =>
@@ -433,6 +435,7 @@ public partial class SetupWindow : Window
         _settings.AgentCostCap = double.TryParse(Selected(AgentCostBox), NumberStyles.Float, CultureInfo.InvariantCulture, out var cap) ? cap : 0;
         _settings.AgentAlwaysAllow = AgentAlwaysBox.IsChecked == true;
         _settings.AgentQuiet = AgentQuietBox.IsChecked == true;
+        _settings.SessionDucking = SessionDuckingBox.IsChecked == true;
 
         try
         {

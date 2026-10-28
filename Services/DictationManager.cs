@@ -161,6 +161,7 @@ public sealed class DictationManager : IAsyncDisposable
             L.NoteSpoken(transcript);
 
             var focus = await run.Focus.ConfigureAwait(false);
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
             string text = run.Mode == DictationMode.Write
                 ? await WriteAsync(transcript, focus, await run.Screens.ConfigureAwait(false), ct).ConfigureAwait(false)
                 : await CleanUpAsync(run.Mode, transcript, focus, ct).ConfigureAwait(false);
@@ -175,6 +176,7 @@ public sealed class DictationManager : IAsyncDisposable
             // Dictation: trailing space so the next dictation doesn't glue onto this one
             if (run.Mode == DictationMode.Dictate && !char.IsWhiteSpace(text[^1])) text += " ";
 
+            Logger.Log($"[Timing] {run.Mode} AI pass {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
             var result = await TextInserter.InsertAsync(text, _ui).ConfigureAwait(false);
             Logger.Log($"[{run.Mode}] {result} into {focus.Describe()}: \"{text.Trim()}\"");
             if (result == InsertResult.CopiedOnly) Feedback(run, L.CopiedPaste);

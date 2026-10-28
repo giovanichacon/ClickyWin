@@ -54,9 +54,11 @@ public sealed class VoiceSession : IAsyncDisposable
     public async Task<(string transcript, bool connectFailed)> StopAndTranscribeAsync()
     {
         if (!await MicStarted.ConfigureAwait(false)) return ("", false);
+        long released = System.Diagnostics.Stopwatch.GetTimestamp();
         await Mic!.StopAsync().ConfigureAwait(false);
 
         string transcript = await Asr!.FinishAsync(TranscriptTimeout, Token).ConfigureAwait(false);
+        Logger.Log($"[Timing] Transcript {System.Diagnostics.Stopwatch.GetElapsedTime(released).TotalMilliseconds:F0} ms after release");
         if (!string.IsNullOrWhiteSpace(transcript)) return (transcript.Trim(), false);
 
         await AsrConnected.ConfigureAwait(false);

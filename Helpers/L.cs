@@ -78,6 +78,8 @@ public static partial class L
     public static string SessionHint => T("Di \"para\" para detener una tarea · \"terminar sesión\" o Esc para salir", "Say \"stop\" to stop a task · \"end session\" or Esc to finish");
     public static string SessionStarted => T("Te escucho.", "I'm listening.");
     public static string SessionEnded => T("Sesión terminada.", "Session ended.");
+    public static string SessionDuckingLabel => T("Bajar la música y los videos durante el modo manos libres",
+        "Turn music and videos down during hands-free mode");
     public static string AgentQuietLabel => T("Hablar menos al hacer tareas (solo \"Listo\", respuestas y problemas)", "Talk less while doing tasks (just \"Done\", answers and problems)");
     public static string AgentModelLabel => T("Modelo para hacer tareas", "Model for doing tasks");
     public static string AgentCostLabel => T("Costo máximo por tarea (USD)", "Max cost per task (USD)");

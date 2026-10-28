@@ -220,6 +220,7 @@
                     </Grid>
                     <CheckBox x:Name="AgentAlwaysBox"/>
                     <CheckBox x:Name="AgentQuietBox"/>
+                    <CheckBox x:Name="SessionDuckingBox"/>
                 </StackPanel>
             </TabItem>
         </TabControl>
