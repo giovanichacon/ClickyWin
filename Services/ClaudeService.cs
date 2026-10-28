@@ -28,6 +28,8 @@ public sealed record TeachMark(MarkKind Kind, double X, double Y, double X2 = 0,
         return this with { X = x, Y = y, X2 = x2, Y2 = y2, R = R / shot.Scale };
     }
 }
+/// <summary>A [DO] task and who does it: runner, teacher, worker (default) or engineer; Long = plan it first.</summary>
+public sealed record DoTask(string Rank, string Task, bool Long = false);
 
 /// <summary>What happened while producing one reply (filled in as the stream runs).</summary>
 public sealed class ReplyInfo
@@ -93,7 +95,8 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     [GeneratedRegex(@"\b(?:I'll|I will|I'm going to|let me|voy a|lo voy a|ahora)\s+(?:[\w'’]+\s+){0,3}?(?:open|close|reopen|click|play|pause|type|search|turn|switch|set|launch|start|delete|empty|move|mute|unmute|scroll|fill|abrir|abro|cerrar|cierro|poner|pongo|reproducir|buscar|busco|escribir|escribo|activar|desactivar|subir|bajar|borrar|vaciar)\b", RegexOptions.IgnoreCase)]
     private static partial Regex ActionPromise();
 
-    [GeneratedRegex(@"\[DO:\s*((?:[^\[\]]|\[[^\[\]]*\])+)\]", RegexOptions.IgnoreCase)]
+    // [DO: task] = worker; [DO:runner: task], [DO:worker long: task], …
+    [GeneratedRegex(@"\[DO:\s*(?:(runner|teacher|worker|engineer)(\s+long)?\s*:)?\s*((?:[^\[\]]|\[[^\[\]]*\])+)\]", RegexOptions.IgnoreCase)]
     private static partial Regex DoTagRegex();
 
     private readonly object _clientLock = new();
@@ -366,9 +369,6 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         return !text.TrimEnd().EndsWith('?') && ActionPromise().IsMatch(text);
     }
 
-    /// <summary>The task in a [DO: task] tag (the user asked Clicky to act on the computer), or null.</summary>
-    public static string? ParseDoTask(string text) =>
-        DoTagRegex().Match(text) is { Success: true } m && m.Groups[1].Value.Trim() is { Length: > 0 } task ? task : null;
 
     /// <summary>The goal in a [TEACH: goal] tag (the user wants a step-by-step lesson), or null.</summary>
     public static string? ParseTeachGoal(string text) =>
@@ -413,4 +413,9 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         static int[] Ints(string s) => s.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries)
             .Select(v => int.TryParse(v, out int n) ? n : -1).TakeWhile(n => n >= 0).ToArray();
     }
+    /// <summary>The task in a [DO: task] / [DO:rank: task] tag (the user asked Clicky to act on the computer), or null.</summary>
+    public static DoTask? ParseDoTask(string text) =>
+        DoTagRegex().Match(text) is { Success: true } m && m.Groups[3].Value.Trim() is { Length: > 0 } task
+            ? new DoTask(m.Groups[1].Success ? m.Groups[1].Value.ToLowerInvariant() : "worker", task, m.Groups[2].Success)
+            : null;
 }

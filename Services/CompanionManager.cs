@@ -47,7 +47,7 @@ public sealed class CompanionManager : IAsyncDisposable
     /// <summary>Question and spoken answer (for the tray panel and "copy answers").</summary>
     public event Action<string, string>? AnswerReady;
     /// <summary>The user asked Clicky to do something on the computer: (task, what they said).</summary>
-    public event Action<string, string>? DoRequested;
+    public event Action<DoTask, string>? DoRequested;
 
     /// <summary>Clicky's last spoken reply (the hands-free session checks whether it asked something).</summary>
     public string LastReply { get; private set; } = "";
@@ -248,7 +248,12 @@ public sealed class CompanionManager : IAsyncDisposable
                 if (!doFired && ClaudeService.ParseDoTask(reply.ToString()) is { } task)
                 {
                     doFired = true;
-                    Logger.Log($"[Claude] DO \"{task}\"");
+                    Logger.Log($"[Claude] DO {task.Rank}{(task.Long ? " long" : "")} \"{task.Task}\"");
+                    if (task.Rank == "teacher")
+                    {
+                        Teacher.Start(task.Task);
+                        continue;
+                    }
                     if (_settings.AgentQuiet)
                     {
                         // act, don't narrate: also cut off any words spoken before the tag
@@ -325,7 +330,7 @@ public sealed class CompanionManager : IAsyncDisposable
         {
             var task = $"The user said: \"{transcript}\". Clicky replied: \"{fullText}\". Do what Clicky said it would do.";
             Logger.Log("[Claude] Promised to act without [DO]; starting the task anyway");
-            DoRequested?.Invoke(task, transcript);
+            DoRequested?.Invoke(new DoTask("worker", task), transcript);
             return;
         }
 

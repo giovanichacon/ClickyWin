@@ -154,7 +154,11 @@ public sealed class ScreenshotConfig
 /// <summary>Computer use (Clicky clicks and types for the user after they approve the task).</summary>
 public sealed class AgentConfig
 {
-    public string Model { get; set; } = "claude-opus-5-5";
+    public string Model { get; set; } = "claude-sonnet-5-5";
+    /// <summary>Where a Haiku agent hands a task it can't manage (hand_off tool).</summary>
+    public string HandOffModel { get; set; } = "claude-sonnet-5-5";
+    /// <summary>Plans long tasks and answers the driver's consult tool; never drives the screen.</summary>
+    public string BossModel { get; set; } = "claude-opus-5-5";
     public string Effort { get; set; } = "medium";
     public int MaxTokens { get; set; } = 8000;
     public int MaxTurns { get; set; } = 30;

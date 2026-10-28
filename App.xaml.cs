@@ -46,7 +46,8 @@ public partial class App
 
         // Single-instance guard — before touching Logger, so a second launch can't rotate
         // the running instance's log file.
-        _singleInstanceMutex = new System.Threading.Mutex(true, "ClickyWindows_SingleInstance", out bool isFirst);
+        _singleInstanceMutex = new System.Threading.Mutex(true,
+            "ClickyWindows_SingleInstance" + (AppSettings.TestFolder != null ? "_Test" : ""), out bool isFirst);
         if (!isFirst)
         {
             _singleInstanceMutex.Dispose();
@@ -149,7 +150,8 @@ public partial class App
         if (askArg >= 0 && askArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
             _companion.AskText(e.Args[askArg + 1]); // testing: a spoken question without the mic
         if (doArg >= 0 && doArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
-            _ = _agent.RunAsync(e.Args[doArg + 1], e.Args[doArg + 1]); // testing: a task without the hotkey
+            _ = _agent.RunAsync(ClaudeService.ParseDoTask($"[DO:{e.Args[doArg + 1]}]") ?? new DoTask("worker", e.Args[doArg + 1]),
+                e.Args[doArg + 1]); // testing: a task without the hotkey ("runner: youtube …" picks the rank)
         else if (e.Args.Contains("--panel"))
             _panel.ShowNearTray();
         else if (_settings.HasRequiredKeys && !e.Args.Contains("--settings"))

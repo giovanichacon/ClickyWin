@@ -15,8 +15,7 @@ public static class AudioDucker
     private static readonly object Gate = new();
 
     // Saved volumes also live on disk, so a crash mid-session can't leave other apps at 20%: the next start restores them
-    private static readonly string SavedPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClickyWindows", "ducked.json");
+    private static readonly string SavedPath = Path.Combine(Settings.AppSettings.Folder, "ducked.json");
 
     /// <summary>Lowers every other app. Safe to call repeatedly: apps that started playing since are lowered too.</summary>
     public static void Duck()
