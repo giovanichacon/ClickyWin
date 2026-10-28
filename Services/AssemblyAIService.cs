@@ -67,11 +67,16 @@ public sealed class AssemblyAIService : IAsyncDisposable
     public string? Error { get; private set; }
 
     /// <param name="keyterms">Personal dictionary: boosted names/terms (API limit 100 terms of ≤50 chars).</param>
-    public AssemblyAIService(string apiKey, string endpoint, string speechModel, IReadOnlyList<string>? keyterms = null)
+    public AssemblyAIService(string apiKey, string endpoint, string speechModel, IReadOnlyList<string>? keyterms = null,
+        IReadOnlyList<string>? languages = null, string? prompt = null)
     {
         _apiKey = apiKey;
         var url = $"{endpoint}?sample_rate=16000&encoding=pcm_s16le" +
                   $"&speech_model={Uri.EscapeDataString(speechModel)}";
+        if (languages is { Count: > 0 })
+            url += "&language_codes=" + Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(languages));
+        if (!string.IsNullOrWhiteSpace(prompt))
+            url += "&prompt=" + Uri.EscapeDataString(prompt);
         var terms = keyterms?.Where(t => !string.IsNullOrWhiteSpace(t) && t.Length <= 50).Take(100).ToList();
         if (terms is { Count: > 0 })
             url += "&keyterms_prompt=" + Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(terms));

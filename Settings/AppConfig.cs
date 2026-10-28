@@ -124,6 +124,10 @@ public sealed class EndpointConfig
 public sealed class SpeechConfig
 {
     public string AssemblyAiModel { get; set; } = "universal-3-6-pro";
+    /// <summary>language_codes: steers the model to these languages (empty = any of its 32, which lets Polish/Russian come out as English).</summary>
+    public List<string> AssemblyAiLanguages { get; set; } = ["en", "es"];
+    /// <summary>Contextual prompt: a short description of the audio, cuts misheard words.</summary>
+    public string AssemblyAiPrompt { get; set; } = "";
     public string ElevenLabsModel { get; set; } = "eleven_flash_v2_5";
     public string ElevenLabsVoiceId { get; set; } = "EXAVITQu4vr4xnSDxMaL";
 }

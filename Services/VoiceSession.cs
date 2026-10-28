@@ -31,7 +31,8 @@ public sealed class VoiceSession : IAsyncDisposable
         Func<bool>? muted = null)
     {
         Asr = new AssemblyAIService(settings.AssemblyAiApiKey, settings.Config.Endpoints.AssemblyAiStreaming,
-            settings.Config.Speech.AssemblyAiModel, settings.Dictionary);
+            settings.Config.Speech.AssemblyAiModel, settings.Dictionary,
+            settings.Config.Speech.AssemblyAiLanguages, settings.Config.Speech.AssemblyAiPrompt);
         if (onTurn != null) Asr.TurnEnded += onTurn;
         AsrConnected = Asr.ConnectAsync();
         MicStarted = Task.Run(async () =>
