@@ -128,7 +128,8 @@ public partial class OverlayWindow : Window
     {
         if (!_hwndReady) return;
         bool needed = _alwaysShowCursor || _appState != AppState.Idle ||
-                      _dotState != DotState.FollowingCursor || TargetLabel.Visibility == Visibility.Visible;
+                      _dotState != DotState.FollowingCursor || TargetLabel.Visibility == Visibility.Visible ||
+                      CaptionLabel.Visibility == Visibility.Visible;
         if (needed && !_cursorTimer.IsEnabled)
         {
             SnapToCursor();
@@ -451,6 +452,31 @@ public partial class OverlayWindow : Window
             };
             _labelTimer.Start();
         });
+    }
+
+    // ── Captions ────────────────────────────────────────────────────────────
+
+    /// <summary>Shows the sentence being spoken next to the dot (below the target label when pointing).</summary>
+    public void ShowCaption(string text)
+    {
+        CaptionText.Text = text.Trim();
+        System.Windows.Controls.Canvas.SetTop(CaptionLabel, TargetLabel.Visibility == Visibility.Visible ? 68 + TargetLabel.ActualHeight + 6 : 68);
+        CaptionLabel.Visibility = Visibility.Visible;
+        CaptionLabel.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromSeconds(0.15)));
+        UpdateTicking();
+    }
+
+    public void HideCaption()
+    {
+        if (CaptionLabel.Visibility != Visibility.Visible) return;
+        var fade = new DoubleAnimation(0, TimeSpan.FromSeconds(0.3));
+        fade.Completed += (_, _) =>
+        {
+            if (CaptionLabel.Opacity > 0) return; // a new caption came in meanwhile
+            CaptionLabel.Visibility = Visibility.Collapsed;
+            UpdateTicking();
+        };
+        CaptionLabel.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
     // ── Spinner transcript-confirmation pulse ───────────────────────────────

@@ -164,7 +164,7 @@ public partial class SetupWindow : Window
         CursorColorGroup.Text = L.CursorColorGroup;
         Fill(CursorColorBox, settings.CursorColor.ToUpperInvariant(),
             ("#3380FF", L.ColorBlue), ("#9B6BFF", L.ColorPurple), ("#FF5FA2", L.ColorPink), ("#FF8A3D", L.ColorOrange));
-        foreach (ComboBoxItem item in CursorColorBox.Items)
+        foreach (ListBoxItem item in CursorColorBox.Items)
             item.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString((string)item.Tag));
         CursorShowGroup.Text = L.CursorShowGroup;
         Fill(CursorShowBox, settings.HideCursor ? "pointing" : settings.AlwaysShowCursor ? "always" : "active",
@@ -224,7 +224,10 @@ public partial class SetupWindow : Window
     {
         foreach (var (value, text) in items)
         {
-            var item = new ComboBoxItem { Content = text, Tag = value };
+            // ComboBoxItem swallows clicks outside a ComboBox, so list boxes get plain ListBoxItems
+            ListBoxItem item = box is ComboBox ? new ComboBoxItem() : new ListBoxItem();
+            item.Content = text;
+            item.Tag = value;
             box.Items.Add(item);
             if (value == selected) box.SelectedItem = item;
         }
@@ -244,7 +247,7 @@ public partial class SetupWindow : Window
         box.Tag = text.Desc;
     }
 
-    private static string Selected(Selector box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+    private static string Selected(Selector box) => (box.SelectedItem as ListBoxItem)?.Tag as string ?? "";
 
     /// <summary>A brush from Themes/Dark.xaml (mac design-system colors).</summary>
     private static System.Windows.Media.Brush Res(string key) => (System.Windows.Media.Brush)System.Windows.Application.Current.FindResource(key);

@@ -204,7 +204,7 @@ public static partial class L
     public static string SpeakerLabel => T("Altavoz", "Speaker");
     public static string TestSound => T("Probar sonido", "Test sound");
     public static string SpeakerHint => T("La voz de ElevenLabs usa este altavoz; la voz de Windows usa el predeterminado.", "The ElevenLabs voice uses this speaker; the Windows voice uses the default one.");
-    public static (string Title, string Desc) CaptionsLabel => (T("Subtítulos", "Captions"), T("Muestra lo que dice Clicky abajo en la pantalla.", "Shows what Clicky says at the bottom of the screen."));
+    public static (string Title, string Desc) CaptionsLabel => (T("Subtítulos", "Captions"), T("Muestra lo que dice Clicky junto al cursor.", "Shows what Clicky says next to the cursor."));
     public static string TabCursor => T("Cursor", "Cursor");
     public static string SubCursor => T("Cómo se ve el cursor de Clicky y cuándo aparece.", "How Clicky's cursor looks and when it shows.");
     public static string CursorColorGroup => T("COLOR", "COLOR");

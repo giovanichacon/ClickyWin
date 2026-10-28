@@ -58,26 +58,25 @@ public partial class NotchWindow : Window
         StatusDot.Fill = new SolidColorBrush(color);
         StatusGlow.Color = color;
 
-        // Slim when idle: only the cursor icon; the text shows only while Clicky is busy
         _idle = state == AppState.Idle;
-        var busy = _idle ? Visibility.Collapsed : Visibility.Visible;
-        StatusDot.Visibility = StatusText.Visibility = busy;
-        IdleIcon.Visibility = _idle ? Visibility.Visible : Visibility.Collapsed;
-        Pill.MinWidth = _idle ? 0 : 190;
-        Pill.Padding = _idle ? new Thickness(14, 0, 14, 0) : new Thickness(14, 0, 6, 0);
         OnHover(this, null);
     }
 
     /// <summary>Same color as the cursor (Settings > Cursor).</summary>
     public void SetIconColor(Color color) => IdleIcon.Fill = new SolidColorBrush(color);
 
-    // Idle: the gear only appears on hover
+    // Idle: a thin line; hover grows it into the cursor icon + gear. Busy: dot + status text + gear.
     private void OnHover(object sender, System.Windows.Input.MouseEventArgs? e)
     {
-        bool show = !_idle || Pill.IsMouseOver;
-        SettingsButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (_idle) Pill.Padding = show ? new Thickness(14, 0, 6, 0) : new Thickness(14, 0, 14, 0);
-        IdleIcon.Margin = new Thickness(0, 0, show ? 8 : 0, 0);
+        bool open = !_idle || Root.IsMouseOver;
+        static Visibility Show(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
+        StatusDot.Visibility = StatusText.Visibility = Show(!_idle);
+        IdleIcon.Visibility = Show(_idle && open);
+        SettingsButton.Visibility = Show(open);
+        Pill.Height = open ? 24 : 5;
+        Pill.MinWidth = !_idle ? 170 : open ? 0 : 120;
+        Pill.CornerRadius = open ? new CornerRadius(0, 0, 12, 12) : new CornerRadius(0, 0, 3, 3);
+        Pill.Padding = open ? new Thickness(12, 0, 4, 0) : new Thickness(0);
     }
 
     private void OnPillClick(object sender, MouseButtonEventArgs e) => _togglePanel();

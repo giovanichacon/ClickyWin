@@ -112,5 +112,24 @@
                        TextWrapping="Wrap"/>
         </Border>
 
+        <!-- Captions (Settings > Voice): the sentence Clicky is saying, same blue bubble, under the target label -->
+        <Border x:Name="CaptionLabel"
+                Canvas.Left="70" Canvas.Top="68"
+                Visibility="Collapsed"
+                Background="{DynamicResource CursorBrush}"
+                CornerRadius="6"
+                Padding="8,4">
+            <Border.Effect>
+                <DropShadowEffect Color="{DynamicResource CursorColor}" BlurRadius="12" ShadowDepth="0" Opacity="0.5"/>
+            </Border.Effect>
+            <TextBlock x:Name="CaptionText"
+                       Foreground="White"
+                       FontSize="11"
+                       FontWeight="Medium"
+                       FontFamily="Segoe UI"
+                       MaxWidth="220"
+                       TextWrapping="Wrap"/>
+        </Border>
+
     </Canvas>
 </Window>
