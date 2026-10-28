@@ -50,9 +50,16 @@ internal static class Win32
     // Keeps a window out of screenshots and screen recordings (Windows 10 2004+)
     public const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
 
-    [DllImport("user32.dll", SetLastError = true)]
+    /// <summary>"--capturable": skip the exclusion so screenshots/recordings show Clicky's windows
+    /// (UI checks, demos). Claude's own screenshots then include them too.</summary>
+    public static readonly bool Capturable = Environment.GetCommandLineArgs().Contains("--capturable");
+
+    public static bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity) =>
+        Capturable || SetWindowDisplayAffinityNative(hWnd, dwAffinity);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowDisplayAffinity", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+    private static extern bool SetWindowDisplayAffinityNative(IntPtr hWnd, uint dwAffinity);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

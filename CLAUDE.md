@@ -35,7 +35,7 @@ Base: emreyilmaz46/clicky_windows (MIT), remote `upstream`. Work on branch `dev`
 
 ## Open phases
 See `docs/ROADMAP.md` (gap analysis vs mac Clicky/HeyClicky; P1 + D1–D4 + P3–P5 done 2026-10-14).
-Launch flags: `--settings` opens Setup, `--panel` opens the tray panel (screenshots/tests).
+Launch flags: `--settings` opens Setup, `--panel` opens the tray panel (screenshots/tests), `--capturable` skips WDA_EXCLUDEFROMCAPTURE so screenshots/computer use can see the notch, overlay and cards (it also leaks them into Claude's screenshots; UI checks only).
 Installer: `installer\build.ps1` → `dist\Clicky-<Version>-Setup.exe` (self-contained `Dist` profile + Inno Setup 6, dark wizard; version from csproj `<Version>`). `-Install` also upgrades the installed copy (%LOCALAPPDATA%\Programs\Clicky) in place; bump `<Version>` first.
 UI: `Themes/Dark.xaml` = mac DesignSystem tokens (implicit styles for all windows); mac icon in `Assets/` (MIT, Farza; see THIRD_PARTY_NOTICES.txt). Overlay/Setup are excluded from or hard to screenshot: render XAML offscreen to check.
 Release build: `dotnet publish -p:PublishProfile=Release` → `publish\` (R2R; no startup gain measured, ~1 s either way).
