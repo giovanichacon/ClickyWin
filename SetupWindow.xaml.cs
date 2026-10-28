@@ -66,6 +66,8 @@ public partial class SetupWindow : Window
         ShortcutsTab.Header = L.TabShortcuts;
         DictationTab.Header = L.TabDictation;
         GeneralTab.Header = L.TabGeneral;
+        MicTab.Header = L.MicLabel;
+        AgentTab.Header = L.TabAgent;
         SaveButton.Content = L.Save;
         CancelButton.Content = L.Cancel;
 

@@ -158,6 +158,7 @@ public static partial class L
     public static string TabShortcuts => T("Atajos", "Shortcuts");
     public static string TabDictation => T("Dictado", "Dictation");
     public static string TabGeneral => T("General", "General");
+    public static string TabAgent => T("Agente", "Agent");
     public static string HotkeyAsk => T("Preguntar a Clicky (mantener)", "Ask Clicky (hold)");
     public static string HotkeyDictate => T("Dictar en el cuadro de texto (mantener)", "Dictate into the text box (hold)");
     public static string HotkeyWrite => T("Escribir con la pantalla como contexto (mantener)", "Write using the screen as context (hold)");
