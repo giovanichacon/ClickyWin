@@ -456,7 +456,7 @@ public partial class OverlayWindow : Window
 
     // ── Captions ────────────────────────────────────────────────────────────
 
-    /// <summary>Shows the sentence being spoken next to the dot (below the target label when pointing).</summary>
+    /// <summary>Shows the last words spoken (~2 lines) next to the dot (below the target label when pointing).</summary>
     public void ShowCaption(string text)
     {
         CaptionText.Text = text.Trim();

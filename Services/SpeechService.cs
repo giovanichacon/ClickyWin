@@ -67,7 +67,7 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
         bool useElevenLabs = settings.UseElevenLabs && !string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey) && !_elevenLabsOutOfCredits;
         void ShowCaption(string heard)
         {
-            if (!ct.IsCancellationRequested) Caption?.Invoke(heard);
+            if (!ct.IsCancellationRequested) Caption?.Invoke(CaptionTail(heard));
         }
         using var playback = useElevenLabs ? _elevenLabs.BeginPlayback(OnStart, ShowCaption) : null;
         var spoken = new StringBuilder();
@@ -105,6 +105,17 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
 
         if (playback != null && useElevenLabs)
             await playback.DrainAsync(ct).ConfigureAwait(false);
+    }
+
+    private const int CaptionChars = 72; // ~2 lines in the 220 px caption box
+
+    /// <summary>The last ~2 lines of the heard text, cut at a word.</summary>
+    internal static string CaptionTail(string heard)
+    {
+        heard = heard.Trim();
+        if (heard.Length <= CaptionChars) return heard;
+        int cut = heard.IndexOf(' ', heard.Length - CaptionChars);
+        return "…" + (cut < 0 ? heard[^CaptionChars..] : heard[(cut + 1)..]);
     }
 
     public void StopPlayback()
