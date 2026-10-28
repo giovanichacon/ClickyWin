@@ -62,6 +62,7 @@ public partial class App
         Logger.OnInfo  += msg => Dispatcher.InvokeAsync(() => ShowBalloon(msg, ToolTipIcon.Info));
 
         Logger.Log("=== Clicky starting ===");
+        _ = Task.Run(AudioDucker.Restore); // a crash mid hands-free session left other apps turned down
 
         _settings = AppSettings.Load();
         L.Setting = _settings.Language;
@@ -423,6 +424,7 @@ public partial class App
         {
             // Background-thread exception: the runtime terminates the process after this
             Logger.Log($"[Crash] Fatal (terminating={args.IsTerminating}): {args.ExceptionObject}");
+            AudioDucker.Restore();
             Logger.Flush(TimeSpan.FromSeconds(1));
         };
     }
