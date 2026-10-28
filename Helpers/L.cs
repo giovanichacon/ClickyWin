@@ -95,6 +95,12 @@ public static partial class L
     public static string HandsFree => T("Manos libres: toca el atajo para terminar", "Hands-free: tap the shortcut to finish");
     public static string CopiedPaste => T("Copiado: pulsa Ctrl+V para pegar", "Copied: press Ctrl+V to paste");
     public static string LearnedWord(string word) => T($"Aprendí «{word}»", $"Learned \"{word}\"");
+    public static string TeachWatch => T("Mira: ", "Watch: ");
+    public static string TeachYourTurn => T("Tu turno. Te estoy mirando.", "Your turn. I'm watching.");
+    public static string TeachGood => T("¡Eso es!", "Nice, that's it!");
+    public static string TeachCap => T("Esta lección llegó a su límite de costo. La paro aquí.", "This lesson reached its cost limit, so I'll stop here.");
+    public static string TeachEnded => T("Lección terminada.", "Lesson over.");
+    public static string TeachFailed => T("No pude seguir con la lección.", "I couldn't continue the lesson.");
     public static string TutorWatching => T("Te sigo guiando…", "I'll keep guiding you…");
     public static string NoWriteText => T("No supe qué escribir", "I couldn't work out what to write");
     public static string[] Utterances => Es

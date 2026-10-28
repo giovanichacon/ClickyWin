@@ -21,6 +21,7 @@ public sealed class AppConfig
     public SpeechConfig Speech { get; set; } = new();
     public ScreenshotConfig Screenshots { get; set; } = new();
     public AgentConfig Agent { get; set; } = new();
+    public TeacherConfig Teacher { get; set; } = new();
 
     public static string FilePath => Path.Combine(AppContext.BaseDirectory, "appsettings.json");
 
@@ -103,10 +104,20 @@ public sealed class PromptConfig
     [
         "Tutor mode: if the user is still on the current step reply exactly [WAIT]; if the goal is reached reply [DONE] and one short sentence; otherwise give the next step in one sentence and point at it.",
     ];
+    public string[] Teacher { get; set; } =
+    [
+        "Teacher mode: give exactly one step per reply in one or two short spoken sentences, with its tags ([POINT], [CIRCLE], [DRAG], [KEYS]). Add [UNDO] if doing the step changes the document. When the goal is reached reply [DONE] and one short sentence.",
+    ];
+    public string[] TeacherCheck { get; set; } =
+    [
+        "Look at the screenshot. Is this step done? Reply YES, or NO: and one short hint for the user.",
+    ];
 
     public string SystemText => string.Join("\n", System);
     public string SessionText => string.Join("\n", Session);
     public string DuringTaskText => string.Join("\n", DuringTask);
+    public string TeacherText => string.Join("\n", Teacher);
+    public string TeacherCheckText => string.Join("\n", TeacherCheck);
     public string EscalationText => string.Join("\n", EscalationRule);
     public string DictationText => string.Join("\n", Dictation);
     public string WriteText => string.Join("\n", Write);
@@ -157,4 +168,16 @@ public sealed class AgentConfig
     public int SettleMs { get; set; } = 250;
     /// <summary>Seconds between "Allow" and the first action (Esc cancels).</summary>
     public int CountdownSeconds { get; set; } = 3;
+}
+
+/// <summary>Teacher mode (a step-by-step lesson started by [TEACH: goal]).</summary>
+public sealed class TeacherConfig
+{
+    /// <summary>Writes each step; needs exact vision for the drawing coordinates.</summary>
+    public string StepModel { get; set; } = "claude-sonnet-5-5";
+    /// <summary>Answers "is the step done yet?" after the screen changes.</summary>
+    public string CheckModel { get; set; } = "claude-haiku-5-5";
+    /// <summary>USD per lesson; the lesson ends when it is reached.</summary>
+    public double CostCap { get; set; } = 0.50;
+    public int MaxSteps { get; set; } = 25;
 }

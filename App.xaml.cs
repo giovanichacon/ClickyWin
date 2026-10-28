@@ -24,6 +24,7 @@ public partial class App
     private KeyboardHookService? _keys;
     private OverlayWindow? _overlay;
     private HighlightWindow? _highlight;
+    private SketchWindow? _sketch;
     private AgentController? _agent;
     private TaskSession? _session;
     private MainWindow? _mainWindow;
@@ -81,6 +82,9 @@ public partial class App
 
         _overlay = new OverlayWindow();
         _highlight = new HighlightWindow();
+        _sketch = new SketchWindow();
+        _companion.Teacher.MarksChanged += (marks, slowness) => Dispatcher.InvokeAsync(() => _sketch.Draw(marks, slowness));
+        _companion.Teacher.MarksCleared += () => Dispatcher.InvokeAsync(_sketch.Clear);
         _overlay.Show();
 
         _mainWindow = new MainWindow(_companion, _dictation, _overlay);
@@ -333,6 +337,7 @@ public partial class App
         catch (FormatException) { color = System.Windows.Media.Color.FromRgb(0x33, 0x80, 0xFF); }
         _overlay?.SetCursor(_settings.AlwaysShowCursor, _settings.HideCursor, color);
         _highlight?.SetColor(color);
+        _sketch?.SetColor(color);
         _notch?.SetIconColor(color);
         if (!_settings.ScreenHighlight) _highlight?.SetActive(false);
     }
