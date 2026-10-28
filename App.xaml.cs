@@ -82,7 +82,6 @@ public partial class App
 
         _overlay = new OverlayWindow();
         _highlight = new HighlightWindow();
-        ApplyCursor();
         _overlay.Show();
 
         _mainWindow = new MainWindow(_companion, _dictation, _overlay);
@@ -95,6 +94,7 @@ public partial class App
         _companion.AnswerReady += OnAnswerReady;
 
         _notch = new NotchWindow(ToggleNotchPanel, OpenSetup);
+        ApplyCursor();
         _companion.StateChanged += state => Dispatcher.InvokeAsync(() => _notch.SetState(state));
         _captions = new CaptionWindow();
         _companion.Caption += text => Dispatcher.InvokeAsync(() => { if (_settings.Captions) _captions.ShowText(text); });
@@ -323,6 +323,7 @@ public partial class App
         catch (FormatException) { color = System.Windows.Media.Color.FromRgb(0x33, 0x80, 0xFF); }
         _overlay?.SetCursor(_settings.AlwaysShowCursor, _settings.HideCursor, color);
         _highlight?.SetColor(color);
+        _notch?.SetIconColor(color);
         if (!_settings.ScreenHighlight) _highlight?.SetActive(false);
     }
 

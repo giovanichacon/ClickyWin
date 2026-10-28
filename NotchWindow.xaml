@@ -14,16 +14,24 @@
         FontSize="12"
         Foreground="{StaticResource TextPrimary}">
 
-    <!-- Black pill hanging from the top edge (like the HeyClicky notch): status dot + name, gear on the right.
-         Click opens the panel below it. -->
+    <!-- Black pill hanging from the top edge (like the HeyClicky notch). Idle: only the cursor icon (gear on hover).
+         Busy: status dot + text, gear on the right. Click opens the panel below it. -->
     <Border x:Name="Pill" Background="Black" CornerRadius="0,0,14,14" Padding="14,0,6,0" Height="30"
             MinWidth="190" Cursor="Hand" MouseLeftButtonUp="OnPillClick"
+            MouseEnter="OnHover" MouseLeave="OnHover"
             BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,1,1">
         <DockPanel>
             <Button x:Name="SettingsButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}"
                     VerticalAlignment="Center" Click="OnSettings">
                 <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="11"/>
             </Button>
+            <!-- the cursor triangle, tilted like the overlay's -->
+            <Path x:Name="IdleIcon" Data="M8,0 L0,13.86 L16,13.86 Z" Fill="#3380FF" Width="16" Height="14"
+                  Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,8,0" RenderTransformOrigin="0.5,0.6">
+                <Path.RenderTransform>
+                    <RotateTransform Angle="-35"/>
+                </Path.RenderTransform>
+            </Path>
             <Ellipse x:Name="StatusDot" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center">
                 <Ellipse.Effect>
                     <DropShadowEffect x:Name="StatusGlow" BlurRadius="8" ShadowDepth="0" Opacity="0.6"/>
