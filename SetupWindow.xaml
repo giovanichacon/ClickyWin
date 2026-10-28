@@ -281,6 +281,7 @@
                     <TextBlock x:Name="GeneralGroup" Style="{StaticResource Group}"/>
                     <CheckBox x:Name="AlwaysCursorBox"/>
                     <CheckBox x:Name="ShowNotchBox"/>
+                    <CheckBox x:Name="RecordingsBox"/>
                     <CheckBox x:Name="CopyAnswersBox"/>
                     <CheckBox x:Name="TutorBox"/>
                     <CheckBox x:Name="AutostartBox"/>

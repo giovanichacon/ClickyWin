@@ -202,6 +202,7 @@ public static partial class L
     public static string TutorLabel => T("Modo tutor: seguir mirando la pantalla y guiarte paso a paso", "Tutor mode: keep watching the screen and guide you step by step");
     public static (string Title, string Desc) AutostartLabel => (T("Iniciar con Windows", "Start with Windows"), T("Clicky se abre al iniciar sesión.", "Clicky opens when you sign in."));
     public static (string Title, string Desc) AlwaysShowCursor => (T("Mostrar siempre el cursor", "Always show the cursor"), T("Si no, el cursor azul solo aparece mientras usas Clicky.", "Otherwise the blue cursor only shows while Clicky is active."));
+    public static (string Title, string Desc) ShowInRecordingsLabel => (T("Mostrar en grabaciones de pantalla", "Show in screen recordings"), T("El cursor, la barra y las tarjetas salen en grabaciones y capturas, también en las que ve Claude.", "Cursor, bar and cards show in recordings and screenshots, including the ones Claude sees."));
     public static (string Title, string Desc) ShowNotchLabel => (T("Barra de Clicky", "Clicky bar"), T("Barra negra arriba en el centro de la pantalla.", "Black bar at the top center of the screen."));
     public static string ModelLabel => T("Modelo diario", "Everyday model");
     public static string EscalationLabel => T("Preguntas difíciles", "Hard questions");

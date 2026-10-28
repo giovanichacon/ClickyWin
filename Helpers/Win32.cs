@@ -50,12 +50,29 @@ internal static class Win32
     // Keeps a window out of screenshots and screen recordings (Windows 10 2004+)
     public const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
 
-    /// <summary>"--capturable": skip the exclusion so screenshots/recordings show Clicky's windows
-    /// (UI checks, demos). Claude's own screenshots then include them too.</summary>
-    public static readonly bool Capturable = Environment.GetCommandLineArgs().Contains("--capturable");
+    public const uint WDA_NONE = 0;
 
-    public static bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity) =>
-        Capturable || SetWindowDisplayAffinityNative(hWnd, dwAffinity);
+    private static readonly bool CapturableArg = Environment.GetCommandLineArgs().Contains("--capturable");
+
+    /// <summary>"Show in screen recordings" setting or "--capturable": skip the exclusion so screenshots/recordings
+    /// show Clicky's windows (demos, UI checks). Claude's own screenshots then include them too.</summary>
+    public static bool Capturable { get; private set; } = CapturableArg;
+
+    private static readonly HashSet<IntPtr> Excluded = []; // UI thread only
+
+    public static bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity)
+    {
+        Excluded.Add(hWnd);
+        return Capturable || SetWindowDisplayAffinityNative(hWnd, dwAffinity);
+    }
+
+    /// <summary>Applies the setting to every window already excluded (closed ones just fail).</summary>
+    public static void SetCapturable(bool on)
+    {
+        Capturable = on || CapturableArg;
+        foreach (var hwnd in Excluded)
+            SetWindowDisplayAffinityNative(hwnd, Capturable ? WDA_NONE : WDA_EXCLUDEFROMCAPTURE);
+    }
 
     [DllImport("user32.dll", EntryPoint = "SetWindowDisplayAffinity", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

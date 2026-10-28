@@ -66,6 +66,7 @@ public partial class App
         _ = Task.Run(AudioDucker.Restore); // a crash mid hands-free session left other apps turned down
 
         _settings = AppSettings.Load();
+        Win32.SetCapturable(_settings.ShowInRecordings);
         L.Setting = _settings.Language;
         Logger.Log($"Settings: {AppSettings.FilePath} | config: {AppConfig.FilePath}");
         Logger.Log($"Models: {_settings.EffectivePrimaryModel} → {_settings.EffectiveEscalationModel ?? "no escalation"}");
@@ -290,6 +291,7 @@ public partial class App
                 if (_mic != null) _mic.DeviceId = _settings.MicDeviceId;
                 _overlay?.SetAlwaysShowCursor(_settings.AlwaysShowCursor);
                 if (_settings.ShowNotch) _notch?.Show(); else _notch?.Hide();
+                Win32.SetCapturable(_settings.ShowInRecordings);
                 if (!_settings.TutorMode) _companion?.StopTutor();
                 ApplyShortcuts();
                 _panel?.Localize();

@@ -55,6 +55,8 @@ public sealed class AppSettings
     public bool AlwaysShowCursor { get; set; }
     /// <summary>Black pill at the top center of the screen; click it for the panel.</summary>
     public bool ShowNotch { get; set; } = true;
+    /// <summary>Clicky's cursor, bar and cards show in screen recordings and screenshots (also Claude's own).</summary>
+    public bool ShowInRecordings { get; set; }
 
     /// <summary>Dictation: punctuation, fillers and self-corrections fixed by the everyday model.</summary>
     public bool DictationCleanup { get; set; } = true;

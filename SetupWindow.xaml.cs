@@ -156,6 +156,8 @@ public partial class SetupWindow : Window
         AlwaysCursorBox.IsChecked = settings.AlwaysShowCursor;
         Option(ShowNotchBox, L.ShowNotchLabel);
         ShowNotchBox.IsChecked = settings.ShowNotch;
+        Option(RecordingsBox, L.ShowInRecordingsLabel);
+        RecordingsBox.IsChecked = settings.ShowInRecordings;
         Option(CopyAnswersBox, L.CopyAnswersLabel);
         CopyAnswersBox.IsChecked = settings.CopyAnswers;
         Option(TutorBox, L.TutorOption);
@@ -585,6 +587,7 @@ public partial class SetupWindow : Window
         _settings.Language = Selected(LanguageBox);
         _settings.AlwaysShowCursor = AlwaysCursorBox.IsChecked == true;
         _settings.ShowNotch = ShowNotchBox.IsChecked == true;
+        _settings.ShowInRecordings = RecordingsBox.IsChecked == true;
         _settings.CopyAnswers = CopyAnswersBox.IsChecked == true;
         _settings.TutorMode = TutorBox.IsChecked == true;
         _settings.AgentModel = Selected(AgentModelBox);
