@@ -152,6 +152,12 @@ public sealed class DictationManager : IAsyncDisposable
             if (!await run.Session.MicStarted.ConfigureAwait(false)) return;
 
             var (transcript, connectFailed) = await run.Session.StopAndTranscribeAsync().ConfigureAwait(false);
+            if (_settings.KeepRecordings && !connectFailed)
+            {
+                byte[] pcm;
+                lock (run.Session.Audio) pcm = run.Session.Audio.ToArray();
+                _ = Task.Run(() => AccuracyReport.Save(pcm, transcript));
+            }
             if (transcript.Length == 0)
             {
                 Feedback(run, connectFailed ? L.NoConnect : L.NotHeard);

@@ -286,13 +286,15 @@ public partial class OverlayWindow : Window
                     break;
 
                 case AppState.Listening:
+                    // Stopping the timer cancels the bubble's fade-out, so hide it here (a feedback bubble stuck forever)
                     _labelTimer?.Stop();
+                    TargetLabel.Visibility = Visibility.Collapsed;
+                    TargetLabel.BeginAnimation(UIElement.OpacityProperty, null);
                     ProcessingSpinner.Visibility = Visibility.Collapsed;
                     StopSpinner();
                     // Cancel any in-progress pointing and return to spring following
                     if (_dotState != DotState.FollowingCursor)
                     {
-                        TargetLabel.Visibility   = Visibility.Collapsed;
                         _dotVX = _dotVY = 0;
                         _dotState = DotState.FollowingCursor;
                         AnimateRotation(-35);

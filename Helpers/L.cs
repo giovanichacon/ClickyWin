@@ -174,6 +174,11 @@ public static partial class L
     public static string Off => T("Desactivado", "Off");
     public static string CleanupLabel => T("Limpiar el dictado con IA (puntuación, muletillas, autocorrecciones)", "Clean up dictation with AI (punctuation, fillers, self-corrections)");
     public static string LearnLabel => T("Aprender palabras que corrijo justo después de dictar", "Learn words I correct right after dictating");
+    public static string RecordLabel => T("Guardar grabaciones del dictado (solo en este PC) para el informe de precisión", "Keep dictation recordings (on this PC only) for the accuracy report");
+    public static string ReportButton => T("Informe de precisión", "Accuracy report");
+    public static string ReportNone => T("Aún no hay grabaciones: activa la casilla, guarda y dicta.", "No recordings yet: tick the box, save and dictate.");
+    public static string ReportProgress(string step) => T($"Transcribiendo de nuevo {step}…", $"Re-transcribing {step}…");
+    public static string ReportFailed(string error) => T($"Falló el informe: {error}", $"Report failed: {error}");
     public static string DictionaryLabel => T("Diccionario personal (una palabra o nombre por línea)", "Personal dictionary (one word or name per line)");
     public static string DictionaryHint => T("Se usan para reconocer y escribir bien nombres, marcas y términos.", "Used to recognize and spell names, brands and terms correctly.");
     public static string VoiceSpeedLabel => T("Velocidad de la voz", "Voice speed");

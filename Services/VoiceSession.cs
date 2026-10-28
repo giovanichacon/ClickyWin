@@ -21,6 +21,8 @@ public sealed class VoiceSession : IAsyncDisposable
     public CancellationToken Token => _cts.Token;
     public AudioCaptureService.Recording? Mic { get; private set; }
     public AssemblyAIService? Asr { get; private set; }
+    /// <summary>Everything sent to speech-to-text (PCM16 16 kHz mono), only when KeepRecordings is on.</summary>
+    public MemoryStream Audio { get; } = new();
     /// <summary>Completes with false when no microphone could be opened.</summary>
     public Task<bool> MicStarted { get; private set; } = Task.FromResult(false);
     public Task AsrConnected { get; private set; } = Task.CompletedTask;
@@ -40,6 +42,11 @@ public sealed class VoiceSession : IAsyncDisposable
             Action<byte[]> send = muted == null
                 ? Asr.EnqueueAudio
                 : frame => Asr.EnqueueAudio(muted() ? new byte[frame.Length] : frame);
+            if (settings.KeepRecordings && onTurn == null)
+            {
+                var asr = send;
+                send = frame => { lock (Audio) Audio.Write(frame); asr(frame); };
+            }
             var recording = await mic.StartAsync(send, onLevel).ConfigureAwait(false);
             if (recording == null) return false;
             Mic = recording;

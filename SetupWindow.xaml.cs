@@ -111,6 +111,9 @@ public partial class SetupWindow : Window
         CleanupBox.IsChecked = settings.DictationCleanup;
         LearnBox.Content = L.LearnLabel;
         LearnBox.IsChecked = settings.LearnWords;
+        RecordBox.Content = L.RecordLabel;
+        RecordBox.IsChecked = settings.KeepRecordings;
+        ReportButton.Content = L.ReportButton;
         DictionaryLabel.Text = L.DictionaryLabel;
         DictionaryHint.Text = L.DictionaryHint;
         DictionaryBox.Text = string.Join(Environment.NewLine, settings.Dictionary);
@@ -345,6 +348,32 @@ public partial class SetupWindow : Window
         }
     }
 
+    private async void OnAccuracyReport(object sender, RoutedEventArgs e)
+    {
+        var key = string.IsNullOrWhiteSpace(AssemblyKey.Password) ? _settings.AssemblyAiApiKey : AssemblyKey.Password.Trim();
+        if (!Directory.Exists(AccuracyReport.Folder) || Directory.GetFiles(AccuracyReport.Folder, "*.wav").Length == 0)
+        {
+            ReportStatus.Text = L.ReportNone;
+            return;
+        }
+        ReportButton.IsEnabled = false;
+        try
+        {
+            var path = await AccuracyReport.RunAsync(key, new Progress<string>(s => ReportStatus.Text = L.ReportProgress(s)), CancellationToken.None);
+            ReportStatus.Text = "";
+            AccuracyReport.Open(path);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[Recordings] Report failed: {ex.Message}");
+            ReportStatus.Text = L.ReportFailed(ex.Message);
+        }
+        finally
+        {
+            ReportButton.IsEnabled = true;
+        }
+    }
+
     // ── Key tests ───────────────────────────────────────────────────────────
 
     private async void OnTestClaude(object sender, RoutedEventArgs e) =>
@@ -420,6 +449,7 @@ public partial class SetupWindow : Window
 
         _settings.DictationCleanup = CleanupBox.IsChecked == true;
         _settings.LearnWords = LearnBox.IsChecked == true;
+        _settings.KeepRecordings = RecordBox.IsChecked == true;
         _settings.Dictionary = DictionaryBox.Text
             .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase)

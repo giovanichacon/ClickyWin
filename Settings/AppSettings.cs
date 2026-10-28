@@ -58,6 +58,8 @@ public sealed class AppSettings
     public bool DictationCleanup { get; set; } = true;
     /// <summary>Dictation: words you fix right after dictating are added to <see cref="Dictionary"/>.</summary>
     public bool LearnWords { get; set; } = true;
+    /// <summary>Dictation: keep each recording locally for the accuracy report (<see cref="Services.AccuracyReport"/>).</summary>
+    public bool KeepRecordings { get; set; }
     /// <summary>Names and terms to spell exactly (sent to speech-to-text and the cleanup model).</summary>
     public List<string> Dictionary { get; set; } = [];
 

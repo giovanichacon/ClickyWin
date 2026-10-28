@@ -167,6 +167,11 @@
                     <StackPanel DockPanel.Dock="Top">
                         <CheckBox x:Name="CleanupBox"/>
                         <CheckBox x:Name="LearnBox"/>
+                        <DockPanel Margin="0,4,0,0">
+                            <Button x:Name="ReportButton" DockPanel.Dock="Right" Margin="8,0,0,0" Click="OnAccuracyReport"/>
+                            <CheckBox x:Name="RecordBox" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBlock x:Name="ReportStatus" Style="{StaticResource Status}"/>
                         <TextBlock x:Name="DictionaryLabel" Style="{StaticResource Section}" Margin="0,16,0,4"/>
                     </StackPanel>
                     <TextBlock x:Name="DictionaryHint" DockPanel.Dock="Bottom" Style="{StaticResource Status}"/>
