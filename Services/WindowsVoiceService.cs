@@ -15,7 +15,8 @@ public sealed class WindowsVoiceService(Func<string>? preferredVoice = null, Fun
     private SpeechSynthesizer? _synth;
     private Prompt? _current;
 
-    public async Task SpeakAsync(string text, Action? onPlaybackStarting, CancellationToken ct)
+    /// <param name="onWord">Characters of <paramref name="text"/> spoken so far, as each word starts.</param>
+    public async Task SpeakAsync(string text, Action? onPlaybackStarting, CancellationToken ct, Action<int>? onWord = null)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -33,11 +34,19 @@ public sealed class WindowsVoiceService(Func<string>? preferredVoice = null, Fun
                 lock (_lock)
                     if (e.Prompt != prompt) return;
                 synth.SpeakCompleted -= OnCompleted;
+                synth.SpeakProgress -= OnProgress;
                 if (e.Cancelled) done.TrySetCanceled(ct);
                 else if (e.Error != null) done.TrySetException(e.Error);
                 else done.TrySetResult();
             }
+            void OnProgress(object? s, SpeakProgressEventArgs e)
+            {
+                lock (_lock)
+                    if (e.Prompt != prompt) return;
+                onWord?.Invoke(e.CharacterPosition + e.CharacterCount);
+            }
             synth.SpeakCompleted += OnCompleted;
+            if (onWord != null) synth.SpeakProgress += OnProgress;
 
             onPlaybackStarting?.Invoke();
             prompt = synth.SpeakAsync(text);

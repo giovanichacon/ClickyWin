@@ -97,8 +97,9 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
                 }
             }
 
-            ShowCaption((spoken + sentence).Trim()); // shortcut: whole sentence at once until the SAPI word reveal
-            await _windows.SpeakAsync(sentence, OnStart, ct).ConfigureAwait(false);
+            var before = spoken.ToString();
+            await _windows.SpeakAsync(sentence, OnStart, ct,
+                end => ShowCaption(before + ElevenLabsService.Playback.StartedWords(sentence, (double)end / sentence.Length))).ConfigureAwait(false);
             spoken.Append(sentence).Append(' ');
         }
 
