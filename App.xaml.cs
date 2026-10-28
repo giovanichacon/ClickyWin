@@ -144,6 +144,10 @@ public partial class App
         SetupTrayIcon();
 
         Logger.Log($"Clicky ready. Ask: {_askText} | Dictate: {_dictateText} | Write: {_writeText} | Prompt: {_promptText}");
+        int claudeArg = Array.IndexOf(e.Args, "--claude"), cwdArg = Array.IndexOf(e.Args, "--cwd");
+        if (claudeArg >= 0 && claudeArg + 1 < e.Args.Length) // testing: an Engineer task without the hotkey (Claude Code CLI)
+            _ = _agent.RunEngineerAsync(e.Args[claudeArg + 1], e.Args[claudeArg + 1], preApproved: true,
+                cwdArg >= 0 && cwdArg + 1 < e.Args.Length ? e.Args[cwdArg + 1] : null);
         int doArg = Array.IndexOf(e.Args, "--do"), askArg = Array.IndexOf(e.Args, "--ask"), sayArg = Array.IndexOf(e.Args, "--session-say");
         if (sayArg >= 0 && sayArg + 1 < e.Args.Length && _settings.HasRequiredKeys)
             _ = SessionTestAsync(e.Args[sayArg + 1].Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
