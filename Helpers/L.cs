@@ -151,6 +151,8 @@ public static partial class L
     public static string PreviewText => T("Hola, soy Clicky. Así sueno.", "Hi, I'm Clicky. This is how I sound.");
     public static string MicLabel => T("Micrófono", "Microphone");
     public static string MicDefault => T("Predeterminado de Windows", "Windows default");
+    public static string MicDevices => T("DISPOSITIVOS", "DEVICES");
+    public static string MicLevelGroup => T("NIVEL", "LEVEL");
     public static string MicHint => T("Habla: la barra debe moverse.", "Speak: the bar should move.");
     public static string TabKeys => T("Claves", "Keys");
     public static string TabVoice => T("Voz", "Voice");

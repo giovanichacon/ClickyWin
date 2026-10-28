@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Windows.Automation;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
@@ -105,8 +106,9 @@ public partial class SetupWindow : Window
         VoiceSpeedLabel.Text = L.VoiceSpeedLabel;
         VoiceSpeedSlider.Value = settings.EffectiveVoiceSpeed;
         VoiceSpeedValue.Text = $"{settings.EffectiveVoiceSpeed:0.00}×";
-        MicLabel.Text = L.MicLabel;
         MicHint.Text = L.MicHint;
+        MicGroup.Text = L.MicDevices;
+        MicLevelGroup.Text = L.MicLevelGroup;
         Fill(VoiceBox, settings.Voice,
             ("Auto", L.VoiceAuto), ("ElevenLabs", L.VoiceEleven), ("Windows", L.VoiceWindows));
         Fill(MicBox, settings.MicDeviceId, [("", L.MicDefault), .. AudioCaptureService.ListDevices()]);
@@ -170,8 +172,14 @@ public partial class SetupWindow : Window
         SessionDuckingBox.IsChecked = settings.SessionDucking;
 
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        for (int i = 0; i < MeterBars; i++)
+            MicMeter.Children.Add(new Border { CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 3, 0) });
+        ShowMicLevel();
         _meterTimer.Tick += (_, _) =>
-            MicLevel.Value = Math.Max(_meter.TakePeak(), MicLevel.Value * 0.8); // fast attack, smooth fall
+        {
+            _micLevel = Math.Max(_meter.TakePeak(), _micLevel * 0.8); // fast attack, smooth fall
+            ShowMicLevel();
+        };
         _meterTimer.Start();
 
         _loaded = true;
@@ -189,7 +197,7 @@ public partial class SetupWindow : Window
         string.IsNullOrWhiteSpace(key) ? L.NotSet
         : key.Trim().Length > 8 ? $"{L.Saved} (…{key.Trim()[^4..]})" : L.Saved;
 
-    private static void Fill(ComboBox box, string selected, params (string value, string text)[] items)
+    private static void Fill(Selector box, string selected, params (string value, string text)[] items)
     {
         foreach (var (value, text) in items)
         {
@@ -213,7 +221,7 @@ public partial class SetupWindow : Window
         box.Tag = text.Desc;
     }
 
-    private static string Selected(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+    private static string Selected(Selector box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
 
     /// <summary>A brush from Themes/Dark.xaml (mac design-system colors).</summary>
     private static System.Windows.Media.Brush Res(string key) => (System.Windows.Media.Brush)System.Windows.Application.Current.FindResource(key);
@@ -226,11 +234,21 @@ public partial class SetupWindow : Window
 
     // ── Microphone preview ──────────────────────────────────────────────────
 
+    private const int MeterBars = 24;
+    private double _micLevel;
+
+    private void ShowMicLevel()
+    {
+        int lit = (int)Math.Round(Math.Min(_micLevel, 1) * MeterBars);
+        for (int i = 0; i < MeterBars; i++)
+            ((Border)MicMeter.Children[i]).Background = (Brush)FindResource(i < lit ? "Success" : "Surface3");
+    }
+
     private void OnMicChanged(object sender, SelectionChangedEventArgs e)
     {
         var deviceId = Selected(MicBox);
         int generation = ++_meterGeneration;
-        MicLevel.Value = 0;
+        _micLevel = 0;
         // Opening a device can take up to a second: keep the window responsive
         _ = Task.Run(() =>
         {

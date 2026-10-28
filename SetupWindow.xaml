@@ -89,6 +89,37 @@
             <Setter Property="BorderThickness" Value="0,1,0,0"/>
             <Setter Property="Padding" Value="0,10"/>
         </Style>
+        <!-- List item as a radio row: ring (dot when selected) + name, divider above -->
+        <Style x:Key="RadioRow" TargetType="ListBoxItem">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border Background="Transparent" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0"
+                                Padding="0,11">
+                            <StackPanel Orientation="Horizontal">
+                                <Grid Width="16" Height="16" Margin="0,0,12,0" VerticalAlignment="Center">
+                                    <Ellipse x:Name="Ring" Stroke="{StaticResource BorderStrong}" StrokeThickness="1.5"/>
+                                    <Ellipse x:Name="Dot" Width="8" Height="8" Fill="White" Visibility="Collapsed"/>
+                                </Grid>
+                                <ContentPresenter VerticalAlignment="Center" TextElement.Foreground="{StaticResource TextPrimary}"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Ring" Property="Stroke" Value="{StaticResource TextTertiary}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Ring" Property="Fill" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Ring" Property="Stroke" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- Small uppercase header above a group of rows -->
         <Style x:Key="Group" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11"/>
@@ -295,10 +326,14 @@
             <TabItem x:Name="MicTab" Tag="&#xE720;">
                 <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <TextBlock x:Name="MicLabel" Style="{StaticResource Section}"/>
-                    <ComboBox x:Name="MicBox" SelectionChanged="OnMicChanged"/>
-                    <ProgressBar x:Name="MicLevel" Height="6" Margin="0,8,0,0" Maximum="1"/>
-                    <TextBlock x:Name="MicHint" Style="{StaticResource Status}"/>
+                    <TextBlock x:Name="MicGroup" Style="{StaticResource Group}"/>
+                    <ListBox x:Name="MicBox" SelectionChanged="OnMicChanged" ItemContainerStyle="{StaticResource RadioRow}"
+                             Background="Transparent" BorderThickness="0" Padding="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+                    <TextBlock x:Name="MicLevelGroup" Style="{StaticResource Group}"/>
+                    <!-- Segmented level meter: MicMeter's bars light up from the left -->
+                    <UniformGrid x:Name="MicMeter" Rows="1" Height="14"/>
+                    <TextBlock x:Name="MicHint" Style="{StaticResource Status}" Margin="0,8,0,0"/>
                 </StackPanel>
                 </Border>
             </TabItem>
