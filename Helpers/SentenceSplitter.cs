@@ -70,9 +70,6 @@ public sealed class SentenceSplitter
         return -1;
     }
 
-    private static bool OpenTag(string text)
-    {
-        int open = text.LastIndexOf('[');
-        return open >= 0 && text.IndexOf(']', open) < 0;
-    }
+    // Counted, not last '[': a task like [DO: … parents[2] …] holds brackets of its own
+    private static bool OpenTag(string text) => text.Count(c => c == '[') > text.Count(c => c == ']');
 }

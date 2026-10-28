@@ -49,7 +49,8 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     [GeneratedRegex(@"\[POINT:(\d+),(\d+):([^\]:]*)(?::screen(\d+))?\]", RegexOptions.IgnoreCase)]
     private static partial Regex PointTagRegex();
 
-    [GeneratedRegex(@"\s*\[(?:(?:POINT|DO):[^\]]*|IGNORE)\]", RegexOptions.IgnoreCase)]
+    // A task may contain brackets itself ("parents[2]"), so [DO: …] allows one nested [..] level
+    [GeneratedRegex(@"\s*\[(?:POINT:[^\]]*|DO:(?:[^\[\]]|\[[^\[\]]*\])*|IGNORE)\]", RegexOptions.IgnoreCase)]
     private static partial Regex AnyPointTag();
 
     [GeneratedRegex(@"\s*\[POINT:[^\]]*\]", RegexOptions.IgnoreCase)]
@@ -59,7 +60,7 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
     [GeneratedRegex(@"\b(?:I'll|I will|I'm going to|let me|voy a|lo voy a|ahora)\s+(?:[\w'’]+\s+){0,3}?(?:open|close|reopen|click|play|pause|type|search|turn|switch|set|launch|start|delete|empty|move|mute|unmute|scroll|fill|abrir|abro|cerrar|cierro|poner|pongo|reproducir|buscar|busco|escribir|escribo|activar|desactivar|subir|bajar|borrar|vaciar)\b", RegexOptions.IgnoreCase)]
     private static partial Regex ActionPromise();
 
-    [GeneratedRegex(@"\[DO:\s*([^\]]+)\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\[DO:\s*((?:[^\[\]]|\[[^\[\]]*\])+)\]", RegexOptions.IgnoreCase)]
     private static partial Regex DoTagRegex();
 
     private readonly object _clientLock = new();
