@@ -289,6 +289,7 @@ public sealed class TeacherLesson(AppSettings settings, ClaudeService claude, Sc
         _watching = false;
 
         var before = ScreenCaptureService.Thumbnail();
+        var titleBefore = ForegroundTitle();
         using var demo = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var hands = new UserInputWatcher();
         hands.Interrupted += why =>
@@ -307,8 +308,10 @@ public sealed class TeacherLesson(AppSettings settings, ClaudeService claude, Sc
             hands.Armed = false;
         }
         await Task.Delay(600, ct).ConfigureAwait(false);
-        // Only undo what the demo really changed in the document: a view change (orbit, Numpad 0) has no undo step
-        _undoPending = step.Undo && ScreenCaptureService.Differs(before, ScreenCaptureService.Thumbnail());
+        // Only undo what the demo really changed in the document: a view change (orbit, Numpad 0) has no undo step.
+        // The thumbnail misses subtle changes (Blender's camera frame), so a new title ("* file") counts too.
+        _undoPending = step.Undo && (ScreenCaptureService.Differs(before, ScreenCaptureService.Thumbnail()) ||
+                                     ForegroundTitle() != titleBefore);
         Logger.Log($"[Teach] Demo done{(_undoPending ? "; will undo it before the user tries" : "")}");
     }
 
@@ -346,6 +349,13 @@ public sealed class TeacherLesson(AppSettings settings, ClaudeService claude, Sc
         Win32.GetCursorPos(out var from);
         double distance = Math.Sqrt((x - from.X) * (x - from.X) + (y - from.Y) * (y - from.Y));
         return InputDriver.GlideAsync((int)x, (int)y, (int)(Math.Clamp(300 + distance * 0.6, 350, 1100) * _slowness), ct);
+    }
+
+    private static string ForegroundTitle()
+    {
+        var sb = new StringBuilder(256);
+        Win32.GetWindowText(Win32.GetForegroundWindow(), sb, sb.Capacity);
+        return sb.ToString();
     }
 
     private static InputDriver.Button ButtonOf(string name) => name.ToLowerInvariant() switch
