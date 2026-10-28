@@ -24,6 +24,7 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
 
     private static int _talking;
     private static long _lastTalkEndedTicks;
+    private static volatile bool _elevenLabsOutOfCredits; // shortcut: lasts until restart; credits reset monthly
 
     /// <summary>True while any Clicky voice is playing (the hands-free session mutes the mic then).</summary>
     public static bool IsTalking => Volatile.Read(ref _talking) > 0;
@@ -66,7 +67,7 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
 
     private async Task SpeakCoreAsync(ChannelReader<string> sentences, Action OnStart, CancellationToken ct)
     {
-        bool useElevenLabs = settings.UseElevenLabs && !string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey);
+        bool useElevenLabs = settings.UseElevenLabs && !string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey) && !_elevenLabsOutOfCredits;
         using var playback = useElevenLabs ? _elevenLabs.BeginPlayback(OnStart) : null;
         var spoken = new StringBuilder();
 
@@ -86,6 +87,8 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     useElevenLabs = false;
+                    // Out of monthly credits: every later sentence would fail the same way, so stop asking until restart
+                    if (ex.Message.Contains("quota", StringComparison.OrdinalIgnoreCase)) _elevenLabsOutOfCredits = true;
                     var message = $"[TTS] ElevenLabs failed, using the Windows voice: {ex.Message}";
                     // Balloon the first time only; afterwards just log
                     if (Interlocked.Exchange(ref _elevenLabsErrorShown, 1) == 0) Logger.Error(message);

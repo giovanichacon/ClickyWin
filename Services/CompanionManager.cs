@@ -284,6 +284,10 @@ public sealed class CompanionManager : IAsyncDisposable
         {
             throw;
         }
+        catch (OperationCanceledException) when (doFired)
+        {
+            // the voice was cut on purpose because a task started; not an error
+        }
         catch (Exception ex)
         {
             Logger.Error($"TTS failed: {ex.Message}");
