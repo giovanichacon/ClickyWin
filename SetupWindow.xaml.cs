@@ -129,6 +129,8 @@ public partial class SetupWindow : Window
             ("Auto", L.LanguageAuto), ("es", "Español"), ("en", "English"));
         AlwaysCursorBox.Content = L.AlwaysShowCursor;
         AlwaysCursorBox.IsChecked = settings.AlwaysShowCursor;
+        ShowNotchBox.Content = L.ShowNotchLabel;
+        ShowNotchBox.IsChecked = settings.ShowNotch;
         CopyAnswersBox.Content = L.CopyAnswersLabel;
         CopyAnswersBox.IsChecked = settings.CopyAnswers;
         TutorBox.Content = L.TutorLabel;
@@ -459,6 +461,7 @@ public partial class SetupWindow : Window
         _settings.EscalationModel = Selected(EscalationBox);
         _settings.Language = Selected(LanguageBox);
         _settings.AlwaysShowCursor = AlwaysCursorBox.IsChecked == true;
+        _settings.ShowNotch = ShowNotchBox.IsChecked == true;
         _settings.CopyAnswers = CopyAnswersBox.IsChecked == true;
         _settings.TutorMode = TutorBox.IsChecked == true;
         _settings.AgentModel = Selected(AgentModelBox);

@@ -101,6 +101,16 @@ public partial class QuickPanel : Window
         Activate();
     }
 
+    /// <summary>Shows the panel hanging from the notch (top center of the screen).</summary>
+    public void ShowBelow(System.Windows.Point anchor)
+    {
+        Show();
+        UpdateLayout();
+        Left = anchor.X - ActualWidth / 2;
+        Top = anchor.Y - 6; // the 12 px shadow margin tucks under the notch
+        Activate();
+    }
+
     private void OnCopyAnswer(object sender, RoutedEventArgs e)
     {
         if (_answer.Length > 0 && TextInserter.SetClipboardText(_answer))

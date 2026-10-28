@@ -53,6 +53,8 @@ public sealed class AppSettings
     public string PromptHotkey { get; set; } = "";
     /// <summary>false = the blue cursor shows only while listening, thinking, speaking or pointing.</summary>
     public bool AlwaysShowCursor { get; set; }
+    /// <summary>Black pill at the top center of the screen; click it for the panel.</summary>
+    public bool ShowNotch { get; set; } = true;
 
     /// <summary>Dictation: punctuation, fillers and self-corrections fixed by the everyday model.</summary>
     public bool DictationCleanup { get; set; } = true;

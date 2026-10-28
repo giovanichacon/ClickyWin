@@ -203,6 +203,7 @@
                     <ComboBox x:Name="LanguageBox" HorizontalAlignment="Left" MinWidth="200"/>
 
                     <CheckBox x:Name="AlwaysCursorBox" Margin="0,16,0,0"/>
+                    <CheckBox x:Name="ShowNotchBox"/>
                     <CheckBox x:Name="CopyAnswersBox"/>
                     <CheckBox x:Name="TutorBox"/>
                     <CheckBox x:Name="AutostartBox"/>

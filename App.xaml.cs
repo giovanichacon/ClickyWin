@@ -17,6 +17,7 @@ public partial class App
 {
     private NotifyIcon? _trayIcon;
     private QuickPanel? _panel;
+    private NotchWindow? _notch;
     private AudioCaptureService? _mic;
     private CompanionManager? _companion;
     private DictationManager? _dictation;
@@ -88,6 +89,11 @@ public partial class App
         _companion.StateChanged += state => Dispatcher.InvokeAsync(() => _panel.SetState(state));
         _dictation.StateChanged += state => Dispatcher.InvokeAsync(() => _panel.SetState(state));
         _companion.AnswerReady += OnAnswerReady;
+
+        _notch = new NotchWindow(ToggleNotchPanel, OpenSetup);
+        _companion.StateChanged += state => Dispatcher.InvokeAsync(() => _notch.SetState(state));
+        _dictation.StateChanged += state => Dispatcher.InvokeAsync(() => _notch.SetState(state));
+        if (_settings.ShowNotch) _notch.Show();
 
         // Computer use: "do this for me" → Allow card → countdown → Clicky clicks and types
         var agentCard = new AgentCard();
@@ -272,6 +278,7 @@ public partial class App
             {
                 if (_mic != null) _mic.DeviceId = _settings.MicDeviceId;
                 _overlay?.SetAlwaysShowCursor(_settings.AlwaysShowCursor);
+                if (_settings.ShowNotch) _notch?.Show(); else _notch?.Hide();
                 if (!_settings.TutorMode) _companion?.StopTutor();
                 ApplyShortcuts();
                 _panel?.Localize();
@@ -306,6 +313,17 @@ public partial class App
             }
         };
         RebuildTrayMenu();
+    }
+
+    private void ToggleNotchPanel()
+    {
+        if (_panel == null || _notch == null) return;
+        if (_panel.IsVisible) _panel.Hide();
+        else
+        {
+            _panel.SetDictations(_dictation?.Recent ?? []);
+            _panel.ShowBelow(_notch.Anchor);
+        }
     }
 
     /// <summary>

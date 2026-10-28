@@ -1,0 +1,36 @@
+<Window x:Class="ClickyWindows.NotchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Clicky Notch"
+        SizeToContent="WidthAndHeight"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Topmost="True"
+        FontFamily="Segoe UI"
+        FontSize="12"
+        Foreground="{StaticResource TextPrimary}">
+
+    <!-- Black pill hanging from the top edge (like the HeyClicky notch): status dot + name, gear on the right.
+         Click opens the panel below it. -->
+    <Border x:Name="Pill" Background="Black" CornerRadius="0,0,14,14" Padding="14,0,6,0" Height="30"
+            MinWidth="190" Cursor="Hand" MouseLeftButtonUp="OnPillClick"
+            BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,1,1">
+        <DockPanel>
+            <Button x:Name="SettingsButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}"
+                    VerticalAlignment="Center" Click="OnSettings">
+                <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" FontSize="11"/>
+            </Button>
+            <Ellipse x:Name="StatusDot" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center">
+                <Ellipse.Effect>
+                    <DropShadowEffect x:Name="StatusGlow" BlurRadius="8" ShadowDepth="0" Opacity="0.6"/>
+                </Ellipse.Effect>
+            </Ellipse>
+            <TextBlock x:Name="StatusText" Text="Clicky" FontWeight="SemiBold" VerticalAlignment="Center"
+                       Margin="0,0,12,0"/>
+        </DockPanel>
+    </Border>
+</Window>

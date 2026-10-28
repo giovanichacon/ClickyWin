@@ -188,6 +188,9 @@ public static partial class L
     public static string AlwaysShowCursor => T(
         "Mostrar siempre el cursor azul (si no, solo mientras usas Clicky)",
         "Always show the blue cursor (otherwise only while Clicky is active)");
+    public static string ShowNotchLabel => T(
+        "Mostrar la barra de Clicky arriba en el centro de la pantalla",
+        "Show the Clicky bar at the top center of the screen");
     public static string ModelLabel => T("Modelo diario", "Everyday model");
     public static string EscalationLabel => T("Preguntas difíciles", "Hard questions");
     public static string EscalationOff => T("Desactivado", "Off");
