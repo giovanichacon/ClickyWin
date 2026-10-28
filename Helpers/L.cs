@@ -119,6 +119,8 @@ public static partial class L
     public static string MenuSettings => T("Configuración…", "Settings…");
     public static string MenuLog => T("Ver registro", "View log");
     public static string MenuFolder => T("Abrir carpeta de datos", "Open data folder");
+    public static string MenuPause => T("Pausar Clicky", "Pause Clicky");
+    public static string Paused => T("en pausa (atajos desactivados)", "paused (shortcuts off)");
     public static string MenuQuit => T("Salir de Clicky", "Quit Clicky");
     public static string AlreadyRunning => T("Clicky ya está abierto. Búscalo en la bandeja del sistema.", "Clicky is already running. Check the system tray.");
 

@@ -156,7 +156,7 @@ public partial class App
         _dictateText = Bind(ShortcutAction.Dictate, _settings.EffectiveDictateHotkey, _settings.Config.DictateHotkey, true, bindings);
         _writeText = Bind(ShortcutAction.Write, _settings.EffectiveWriteHotkey, _settings.Config.WriteHotkey, true, bindings);
         _promptText = Bind(ShortcutAction.Prompt, _settings.EffectivePromptHotkey, _settings.Config.PromptHotkey, true, bindings);
-        _keys?.SetBindings(bindings);
+        _keys?.SetBindings(_paused ? [] : bindings);
         _panel?.SetShortcuts(_askText, _dictateText, _writeText, _promptText);
     }
 
@@ -167,6 +167,17 @@ public partial class App
         var (chord, shown) = HotkeyParser.ParseOrDefault(text, HotkeyParser.TryParse(fallback, out _) ? fallback : HotkeyParser.Default);
         into.Add(new KeyboardHookService.Binding(action, chord, handsFree));
         return shown;
+    }
+
+    /// <summary>Tray "Pause Clicky": every shortcut is off until resumed (not saved; a restart resumes).</summary>
+    private bool _paused;
+
+    private void TogglePause()
+    {
+        _paused = !_paused;
+        Logger.Log(_paused ? "Paused" : "Resumed");
+        ApplyShortcuts();
+        RebuildTrayMenu();
     }
 
     private void OnShortcutStarted(ShortcutAction action)
@@ -358,6 +369,7 @@ public partial class App
         var menu = new ContextMenuStrip();
         menu.Items.Add($"Clicky  |  {L.HoldToTalk(_askText)}").Enabled = false;
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem(L.MenuPause, null, (_, _) => TogglePause()) { Checked = _paused });
         menu.Items.Add(L.MenuSettings, null, (_, _) => OpenSetup());
         menu.Items.Add(L.MenuLog, null, (_, _) => OpenLog());
         menu.Items.Add(L.MenuFolder, null, (_, _) => OpenSettingsFolder());
@@ -366,7 +378,7 @@ public partial class App
 
         DarkMenu.Apply(menu);
         _trayIcon.ContextMenuStrip = menu;
-        var tip = $"Clicky — {L.HoldToTalk(_askText)}";
+        var tip = _paused ? $"Clicky — {L.Paused}" : $"Clicky — {L.HoldToTalk(_askText)}";
         _trayIcon.Text = tip.Length > 63 ? tip[..63] : tip; // NotifyIcon limit
         old?.Dispose();
     }
