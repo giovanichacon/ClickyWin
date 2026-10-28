@@ -15,6 +15,7 @@ public sealed class UserInputWatcher : IDisposable
     private const uint LLMHF_INJECTED = 0x01;
     private const int WM_MOUSEMOVE = 0x0200;
     private const int MoveThreshold = 12; // physical px: ignore a nudged desk
+    private const int MouseGraceMs = 1500;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MSLLHOOKSTRUCT
@@ -31,6 +32,7 @@ public sealed class UserInputWatcher : IDisposable
     private volatile bool _armed;
     private Win32.POINT _origin;
     private bool _haveOrigin;
+    private long _mouseQuietUntil;
 
     /// <summary>Fires on a hook thread with a short reason ("Esc", "key", "mouse").</summary>
     public event Action<string>? Interrupted;
@@ -54,6 +56,7 @@ public sealed class UserInputWatcher : IDisposable
         set
         {
             _haveOrigin = Win32.GetCursorPos(out _origin);
+            _mouseQuietUntil = Environment.TickCount64 + MouseGraceMs;
             _armed = value;
         }
     }
@@ -109,8 +112,9 @@ public sealed class UserInputWatcher : IDisposable
         if (nCode >= 0 && _armed)
         {
             var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-            if ((info.flags & LLMHF_INJECTED) != 0)
+            if ((info.flags & LLMHF_INJECTED) != 0 || Environment.TickCount64 < _mouseQuietUntil)
             {
+                // Clicky's own moves, or the tail of the click that just answered its card (the hand leaves the card)
                 if ((int)wParam == WM_MOUSEMOVE) (_origin, _haveOrigin) = (info.pt, true); // Clicky moved it
             }
             else
