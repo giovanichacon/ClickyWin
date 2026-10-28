@@ -92,15 +92,21 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
         // Over Clicky's voice (speakers, no headphones) only "stop" counts; the rest is its own echo
         if (started is { } s && TalkedDuringTurn(s)) // typed test lines (no start time) are never echo
         {
-            if (!IsStop(text) && !EndsWithStop(text))
+            if (IsStop(text) || EndsWithStop(text))
+            {
+                Logger.Log($"[Session] Stop over voice: \"{text}\"");
+                companion.StopSpeaking();
+                if (agent.IsRunning) agent.Stop();
+                return;
+            }
+            // The user often talks over the end of Clicky's reply, so the turn holds both: keep their part
+            if (StripEcho(text, SpeechService.RecentSpoken) is not { } own)
             {
                 Logger.Log($"[Session] Echo: \"{text}\"");
                 return;
             }
-            Logger.Log($"[Session] Stop over voice: \"{text}\"");
-            companion.StopSpeaking();
-            if (agent.IsRunning) agent.Stop();
-            return;
+            Logger.Log($"[Session] Echo stripped: \"{text}\" → \"{own}\"");
+            text = own;
         }
         if (agent.IsRunning && IsStop(text)) // before TryAnswer: a free-form answer would swallow "Stop."
         {
@@ -237,6 +243,37 @@ public sealed class TaskSession(AppSettings settings, AudioCaptureService mic, C
     private static bool IsStop(string text) => IsStopWords(text) || IsStopWords(LastSentence(text));
 
     /// <summary>"…opened the folder stop": echo and the user's stop run together without punctuation.</summary>
+    /// <summary>
+    /// The user's own words in a turn heard over Clicky's voice, or null when it is all echo. A word is echo
+    /// when it and a neighbour appear side by side in <paramref name="spoken"/>; the longest run of other words
+    /// counts if it has 5+ words, most of which Clicky never said (fewer is likely misheard echo).
+    /// </summary>
+    internal static string? StripEcho(string turn, string spoken)
+    {
+        static string Norm(string w) => new string(w.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        var said = spoken.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Norm).Where(w => w.Length > 0).ToArray();
+        var saidWords = said.ToHashSet();
+        var saidPairs = said.Zip(said.Skip(1), (a, b) => (a, b)).ToHashSet();
+
+        var words = turn.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var norm = words.Select(Norm).ToArray();
+        var echo = new bool[words.Length];
+        for (int i = 0; i + 1 < words.Length; i++)
+            if (saidPairs.Contains((norm[i], norm[i + 1]))) echo[i] = echo[i + 1] = true;
+
+        int bestStart = 0, bestLen = 0;
+        for (int i = 0, start = 0; i <= words.Length; i++)
+        {
+            if (i < words.Length && !echo[i]) continue;
+            if (i - start > bestLen) (bestStart, bestLen) = (start, i - start);
+            start = i + 1;
+        }
+        if (bestLen < 5) return null;
+        var run = norm.Skip(bestStart).Take(bestLen).Where(w => w.Length > 0).ToArray();
+        if (run.Count(saidWords.Contains) * 2 > run.Length) return null;
+        return string.Join(' ', words, bestStart, bestLen).Trim(' ', ',', '.', '—', '-');
+    }
+
     private static bool EndsWithStop(string text) =>
         Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() is { } w &&
         StopWords.Contains(w) && w is not ("wait" or "espera" or "alto");

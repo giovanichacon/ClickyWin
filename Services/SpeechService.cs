@@ -26,6 +26,16 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
     /// <summary>True while any Clicky voice is playing (the hands-free session mutes the mic then).</summary>
     public static bool IsTalking => Volatile.Read(ref _talking) > 0;
 
+    private static readonly object SpokenLock = new();
+    private const int SpokenKeep = 600; // chars of earlier replies kept; an echo turn rarely spans more
+    private static string _spokenBefore = "", _spokenNow = "";
+
+    /// <summary>The words Clicky's voice said lately (captions as played), to tell its echo from the user.</summary>
+    public static string RecentSpoken
+    {
+        get { lock (SpokenLock) return _spokenBefore + " " + _spokenNow; }
+    }
+
     /// <summary>When Clicky's voice last stopped (UTC).</summary>
     public static DateTime LastTalkEnded => new(Interlocked.Read(ref _lastTalkEndedTicks), DateTimeKind.Utc);
 
@@ -45,6 +55,12 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
         {
             if (started) return;
             started = true;
+            lock (SpokenLock)
+            {
+                var all = _spokenBefore + " " + _spokenNow;
+                _spokenBefore = all.Length > SpokenKeep ? all[^SpokenKeep..] : all;
+                _spokenNow = "";
+            }
             Interlocked.Increment(ref _talking);
             onPlaybackStarting?.Invoke();
         }
@@ -67,6 +83,7 @@ public sealed class SpeechService(AppSettings settings) : IDisposable
         bool useElevenLabs = settings.UseElevenLabs && !string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey) && !_elevenLabsOutOfCredits;
         void ShowCaption(string heard)
         {
+            lock (SpokenLock) _spokenNow = heard;
             if (!ct.IsCancellationRequested) Caption?.Invoke(CaptionTail(heard));
         }
         using var playback = useElevenLabs ? _elevenLabs.BeginPlayback(OnStart, ShowCaption) : null;
