@@ -152,6 +152,16 @@ public sealed partial class ClaudeService(AppSettings settings, ConversationHist
         return reply.ToString();
     }
 
+    /// <summary>
+    /// Opens the HTTPS connection while the user is still talking (free model lookup, no tokens),
+    /// so the request sent on release skips the TCP + TLS handshake (measured 0.1–0.25 s).
+    /// </summary>
+    public void WarmUp() => _ = Task.Run(async () =>
+    {
+        try { await Client().Models.Retrieve(settings.EffectivePrimaryModel).ConfigureAwait(false); }
+        catch { /* only the open connection matters; the real request reports errors */ }
+    });
+
     private static List<BetaMessageParam> HistoryMessages(IEnumerable<ConversationTurn> turns) =>
         turns.Select(t => new BetaMessageParam { Role = t.Role == "user" ? Role.User : Role.Assistant, Content = t.Content })
              .ToList();

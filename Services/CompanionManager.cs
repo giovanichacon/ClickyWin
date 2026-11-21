@@ -104,6 +104,7 @@ public sealed class CompanionManager : IAsyncDisposable
         StateChanged?.Invoke(AppState.Listening);
 
         session.Start(_settings, _mic, level => AudioLevelChanged?.Invoke(level));
+        _claude.WarmUp();
         _ = WatchMicAsync(session);
     }
 

@@ -83,6 +83,7 @@ public sealed class DictationManager : IAsyncDisposable
         Logger.Log($"[{mode}] PRESSED");
         StateChanged?.Invoke(AppState.Listening);
         run.Session.Start(_settings, _mic, level => AudioLevelChanged?.Invoke(level));
+        if (mode != DictationMode.Dictate || _settings.DictationCleanup) _claude.WarmUp();
 
         // Read the target now, while the user talks: by release it is ready
         bool readBox = mode == DictationMode.Write || _settings.LearnWords;
@@ -183,7 +184,10 @@ public sealed class DictationManager : IAsyncDisposable
             if (run.Mode == DictationMode.Dictate && !char.IsWhiteSpace(text[^1])) text += " ";
 
             Logger.Log($"[Timing] {run.Mode} AI pass {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms");
+            started = System.Diagnostics.Stopwatch.GetTimestamp();
             var result = await TextInserter.InsertAsync(text, _ui).ConfigureAwait(false);
+            // Paste includes the 450 ms wait before the clipboard is restored (the text is visible before that)
+            Logger.Log($"[Timing] {run.Mode} insert {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F0} ms ({text.Length} chars)");
             Logger.Log($"[{run.Mode}] {result} into {focus.Describe()}: \"{text.Trim()}\"");
             if (result == InsertResult.CopiedOnly) Feedback(run, L.CopiedPaste);
 

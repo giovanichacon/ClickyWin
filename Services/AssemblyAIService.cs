@@ -49,7 +49,7 @@ public sealed class AssemblyAIService : IAsyncDisposable
         Channel.CreateUnbounded<Outgoing>(new UnboundedChannelOptions { SingleReader = true });
     private readonly TaskCompletionSource _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _finalTurn = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private bool _turnOpen, _finishing; // under _turnsLock
+    private bool _finishing; // under _turnsLock
     private int _startedOrder = -1; // under _turnsLock: the turn whose first words arrived at _turnStartedAt
     private DateTime _turnStartedAt;
 
@@ -239,21 +239,17 @@ public sealed class AssemblyAIService : IAsyncDisposable
     /// </summary>
     public async Task<string> FinishAsync(TimeSpan timeout, CancellationToken ct)
     {
-        bool open;
-        lock (_turnsLock)
-        {
-            _finishing = true;
-            open = _turnOpen;
-        }
+        lock (_turnsLock) _finishing = true;
         _outbox.Writer.TryWrite(new Outgoing(ForceEndpointMessage, WebSocketMessageType.Text));
         _outbox.Writer.TryWrite(new Outgoing(TerminateMessage, WebSocketMessageType.Text));
         _outbox.Writer.TryComplete();
 
         try
         {
-            // The forced end of the open turn carries the last words; Termination can come a second later
-            var done = open ? Task.WhenAny(_ended.Task, _finalTurn.Task) : _ended.Task;
-            await done.WaitAsync(timeout, ct).ConfigureAwait(false);
+            // The forced end of the turn carries the last words; Termination can come a second later.
+            // With no turn open (pause, then release) the server still answers ForceEndpoint with an
+            // empty final Turn (AssemblyAI turn-detection docs, universal-3-6-pro), so this never waits for Termination.
+            await Task.WhenAny(_ended.Task, _finalTurn.Task).WaitAsync(timeout, ct).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -336,7 +332,6 @@ public sealed class AssemblyAIService : IAsyncDisposable
                 lock (_turnsLock)
                 {
                     _turns[order] = text; // later messages for a turn supersede earlier ones
-                    _turnOpen = !endOfTurn && text.Length > 0;
                     if (endOfTurn && _finishing) _finalTurn.TrySetResult();
                     if (text.Length > 0 && order != _startedOrder) (_startedOrder, _turnStartedAt) = (order, DateTime.UtcNow);
                     started = order == _startedOrder ? _turnStartedAt : DateTime.UtcNow;
