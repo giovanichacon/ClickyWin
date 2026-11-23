@@ -234,8 +234,8 @@ public sealed class DictationManager : IAsyncDisposable
     /// so anything else skips the ~1 s cleanup pass. A false match only costs that second.
     /// </summary>
     internal static readonly System.Text.RegularExpressions.Regex NeedsCleanup = new(
-        @"\b(u+m+|u+h+|e+h+|hmm+|este|o sea|like|you know|I mean|sorry|perdón|mejor dicho|scratch that|" +
-        @"new line|new paragraph|nueva línea|nuevo párrafo|bullet|first|second|primero|segundo)\b|\bno,|, digo,",
+        @"\b(u+m+|u+h+|e+h+|hmm+|este|o sea|you know|I mean|sorry|perdón|mejor dicho|scratch that|" +
+        @"new line|new paragraph|nueva línea|nuevo párrafo|bullet|first|second|primero|segundo)\b|\bno,|, digo,|, like,", // "like" only as a filler: plain "like" is too common
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>
@@ -300,7 +300,8 @@ public sealed class DictationManager : IAsyncDisposable
 
         var info = new ReplyInfo();
         var text = await _claude.CompleteAsync(_settings.Config.Prompts.WriteText,
-            ClaudeService.BuildUserContent(context.ToString(), screens), info, allowEscalation: true, ct)
+            // No escalation: long dictations went to Opus 3 times out of 5 and took 3.3–6.5 s instead of ~0.7 s
+            ClaudeService.BuildUserContent(context.ToString(), screens), info, allowEscalation: false, ct)
             .ConfigureAwait(false);
         Logger.Log($"[Write] {info.Model}{(info.Escalated ? " (escalated)" : "")} wrote {text.Length} chars");
         return info.Refused ? "" : ClaudeService.StripPointTags(text).Trim();
