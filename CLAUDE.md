@@ -1,6 +1,6 @@
 # ClickyWin — Windows port of farzaa/clicky (C# WPF, .NET 10)
 
-Check: none (no test project; build = `installeruild.ps1`, only to ship). Status and to-do: `docs/STATUS.md`.
+Check: none (no test project; build = `installerbuild.ps1`, only to ship). Status and to-do: `docs/STATUS.md`.
 
 Hold Ask (Ctrl+Shift+Space) → mic → AssemblyAI → Claude (screenshots) → streamed voice + blue dot pointing.
 Hold Dictate (Ctrl+Win) / Write (Alt+Win) / Prompt (Shift+Win, speech → concise AI prompt) → text typed at the caret. Shortcuts via WH_KEYBOARD_LL (`KeyboardHookService`).
