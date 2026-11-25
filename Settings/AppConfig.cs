@@ -139,6 +139,9 @@ public sealed class SpeechConfig
     public List<string> AssemblyAiLanguages { get; set; } = ["en", "es"];
     /// <summary>Contextual prompt: a short description of the audio, cuts misheard words.</summary>
     public string AssemblyAiPrompt { get; set; } = "";
+    /// <summary>Seconds the session stays open after a press so the next press reuses it (0 = one session per press).
+    /// Free accounts may start 5 sessions per minute; open time is billed, so keep it short.</summary>
+    public int AssemblyAiLingerSeconds { get; set; } = 15;
     public string ElevenLabsModel { get; set; } = "eleven_flash_v2_5";
     public string ElevenLabsVoiceId { get; set; } = "EXAVITQu4vr4xnSDxMaL";
 }

@@ -20,7 +20,9 @@ public sealed class VoiceSession : IAsyncDisposable
 
     public CancellationToken Token => _cts.Token;
     public AudioCaptureService.Recording? Mic { get; private set; }
-    public AssemblyAIService? Asr { get; private set; }
+    private AssemblyAIService? _asr;
+    /// <summary>Null once the session was left open for the next press, or after dispose.</summary>
+    public AssemblyAIService? Asr => _asr;
     /// <summary>Everything sent to speech-to-text (PCM16 16 kHz mono), only when KeepRecordings is on.</summary>
     public MemoryStream Audio { get; } = new();
     /// <summary>Completes with false when no microphone could be opened.</summary>
@@ -30,14 +32,15 @@ public sealed class VoiceSession : IAsyncDisposable
     /// <param name="onTurn">Hands-free session: each finished turn as it ends.</param>
     public void Start(AppSettings settings, AudioCaptureService mic, Action<float>? onLevel, Action<string, DateTime>? onTurn = null)
     {
-        Asr = new AssemblyAIService(settings.AssemblyAiApiKey, settings.Config.Endpoints.AssemblyAiStreaming,
+        var session = _asr = AssemblyAIService.Rent(settings.AssemblyAiApiKey, settings.Config.Endpoints.AssemblyAiStreaming,
             settings.Config.Speech.AssemblyAiModel, settings.Dictionary,
-            settings.Config.Speech.AssemblyAiLanguages, settings.Config.Speech.AssemblyAiPrompt, longTurns: onTurn != null);
-        if (onTurn != null) Asr.TurnEnded += onTurn;
-        AsrConnected = Asr.ConnectAsync();
+            settings.Config.Speech.AssemblyAiLanguages, settings.Config.Speech.AssemblyAiPrompt, longTurns: onTurn != null,
+            settings.Config.Speech.AssemblyAiLingerSeconds);
+        if (onTurn != null) session.TurnEnded += onTurn;
+        AsrConnected = session.ConnectAsync();
         MicStarted = Task.Run(async () =>
         {
-            Action<byte[]> send = Asr.EnqueueAudio;
+            Action<byte[]> send = session.EnqueueAudio;
             if (settings.KeepRecordings && onTurn == null)
             {
                 var asr = send;
@@ -61,12 +64,16 @@ public sealed class VoiceSession : IAsyncDisposable
         long released = System.Diagnostics.Stopwatch.GetTimestamp();
         await Mic!.StopAsync().ConfigureAwait(false);
 
-        string transcript = await Asr!.FinishAsync(TranscriptTimeout, Token).ConfigureAwait(false);
+        var asr = _asr;
+        if (asr == null) return ("", false); // disposed meanwhile
+        string transcript = await asr.FinishAsync(TranscriptTimeout, Token).ConfigureAwait(false);
         Logger.Log($"[Timing] Transcript {System.Diagnostics.Stopwatch.GetElapsedTime(released).TotalMilliseconds:F0} ms after release");
+        // Leave the session open for the next press. Whoever takes the reference owns it: this, or DisposeAsync.
+        if (asr.CanPark && Interlocked.CompareExchange(ref _asr, null, asr) == asr) asr.Park();
         if (!string.IsNullOrWhiteSpace(transcript)) return (transcript.Trim(), false);
 
         await AsrConnected.ConfigureAwait(false);
-        return ("", Asr.Error != null);
+        return ("", asr.Error != null);
     }
 
     public void Cancel() => _cts.Cancel();
@@ -86,8 +93,9 @@ public sealed class VoiceSession : IAsyncDisposable
         }
         try
         {
-            if (Asr != null)
-                await Asr.DisposeAsync().ConfigureAwait(false);
+            var asr = Interlocked.Exchange(ref _asr, null);
+            if (asr != null)
+                await asr.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {

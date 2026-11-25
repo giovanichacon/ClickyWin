@@ -41,6 +41,25 @@ public sealed class AssemblyAIService : IAsyncDisposable
 
     private readonly record struct Outgoing(byte[] Payload, WebSocketMessageType Type);
 
+    // Session reuse: free accounts may start only 5 streaming sessions per minute (the 6th gets 1008), so
+    // after a press the session stays open for a short while and the next press continues on it.
+    // Streaming is billed by the time the socket is open, so the wait is short, never "always open".
+    private static readonly object PoolLock = new();
+    private static AssemblyAIService? _pooled; // under PoolLock: idle, waiting for the next press
+    private static volatile bool _reuseOff;
+    private static int _reuseMisses;
+    private static readonly TimeSpan ForcedTurnWait = TimeSpan.FromSeconds(1.5);
+    // No turn open at release: a final Turn normally comes 100–250 ms after ForceEndpoint when there were words.
+    // shortcut: words that reach the server only after this are lost; if logs show that, raise it.
+    private static readonly TimeSpan SilentGrace = TimeSpan.FromMilliseconds(400);
+    private bool _turnOpen; // under _turnsLock: the server is inside a turn (SpeechStarted or a partial, no end yet)
+    private readonly TimeSpan _linger; // zero = not reusable
+    private int _parkVersion; // under PoolLock
+    private volatile bool _parked;
+    private bool _reused;
+    private int _minOrder; // under _turnsLock: turns below this belong to an earlier press
+    private int _lastTextOrder = -1; // under _turnsLock
+
     private readonly string _apiKey;
     private readonly Uri _uri;
     private ClientWebSocket _ws = new();
@@ -48,7 +67,7 @@ public sealed class AssemblyAIService : IAsyncDisposable
     private readonly Channel<Outgoing> _outbox =
         Channel.CreateUnbounded<Outgoing>(new UnboundedChannelOptions { SingleReader = true });
     private readonly TaskCompletionSource _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly TaskCompletionSource _finalTurn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource _finalTurn = new(TaskCreationOptions.RunContinuationsAsynchronously); // under _turnsLock
     private bool _finishing; // under _turnsLock
     private int _startedOrder = -1; // under _turnsLock: the turn whose first words arrived at _turnStartedAt
     private DateTime _turnStartedAt;
@@ -74,12 +93,97 @@ public sealed class AssemblyAIService : IAsyncDisposable
     /// <param name="keyterms">Personal dictionary: boosted names/terms (API limit 100 terms of ≤50 chars).</param>
     public AssemblyAIService(string apiKey, string endpoint, string speechModel, IReadOnlyList<string>? keyterms = null,
         IReadOnlyList<string>? languages = null, string? prompt = null, bool longTurns = false)
+        : this(apiKey, BuildUri(endpoint, speechModel, keyterms, languages, prompt, longTurns, 0), TimeSpan.Zero)
     {
-        _apiKey = apiKey;
+    }
+
+    private AssemblyAIService(string apiKey, Uri uri, TimeSpan linger) => (_apiKey, _uri, _linger) = (apiKey, uri, linger);
+
+    /// <summary>
+    /// A session for one press: the one left open by the previous press when it fits (same key and settings,
+    /// still connected), else a new one. <paramref name="lingerSeconds"/> 0 turns reuse off; hands-free never reuses.
+    /// </summary>
+    public static AssemblyAIService Rent(string apiKey, string endpoint, string speechModel, IReadOnlyList<string>? keyterms,
+        IReadOnlyList<string>? languages, string? prompt, bool longTurns, int lingerSeconds)
+    {
+        if (longTurns || _reuseOff) lingerSeconds = 0;
+        var uri = BuildUri(endpoint, speechModel, keyterms, languages, prompt, longTurns, lingerSeconds);
+        if (lingerSeconds > 0)
+        {
+            AssemblyAIService? pooled;
+            lock (PoolLock) (pooled, _pooled) = (_pooled, null);
+            if (pooled != null)
+            {
+                if (pooled._apiKey == apiKey && pooled._uri == uri && pooled.IsOpen)
+                {
+                    pooled.StartNextPress();
+                    return pooled;
+                }
+                _ = pooled.DisposeAsync(); // settings changed, or the server closed it while idle
+            }
+        }
+        return new AssemblyAIService(apiKey, uri, TimeSpan.FromSeconds(Math.Max(0, lingerSeconds)));
+    }
+
+    private bool IsOpen => _ws.State == WebSocketState.Open && !_ended.Task.IsCompleted && Error == null &&
+                           Volatile.Read(ref _disposed) == 0;
+
+    private void StartNextPress()
+    {
+        lock (_turnsLock)
+        {
+            _turns.Clear();
+            _finishing = false;
+            _minOrder = _lastTextOrder + 1;
+            _startedOrder = -1;
+            _finalTurn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+        Interlocked.Exchange(ref _audioFrames, 0);
+        CanPark = false;
+        _reused = true;
+        _parked = false;
+        Logger.Log("[ASR] Reusing the open session");
+    }
+
+    /// <summary>True after a clean <see cref="FinishAsync"/> on a reusable session: call <see cref="Park"/> instead of disposing.</summary>
+    public bool CanPark { get; private set; }
+
+    /// <summary>
+    /// Leaves the session open for the next press. From here the pool owns it: the caller must drop its
+    /// reference and not dispose it. Closes by itself when no press comes in time.
+    /// </summary>
+    public void Park()
+    {
+        AssemblyAIService? old;
+        int version;
+        lock (PoolLock)
+        {
+            (old, _pooled) = (_pooled, this);
+            version = ++_parkVersion;
+            _parked = true;
+        }
+        if (old != null) _ = old.DisposeAsync(); // two overlapping presses: keep the newer session
+        _ = Task.Delay(_linger).ContinueWith(delay =>
+        {
+            lock (PoolLock)
+            {
+                if (_pooled != this || _parkVersion != version) return;
+                _pooled = null;
+            }
+            Logger.Log($"[ASR] No press for {_linger.TotalSeconds:F0} s, closing the session");
+            _ = DisposeAsync();
+        }, TaskScheduler.Default);
+    }
+
+    private static Uri BuildUri(string endpoint, string speechModel, IReadOnlyList<string>? keyterms,
+        IReadOnlyList<string>? languages, string? prompt, bool longTurns, int lingerSeconds)
+    {
         var url = $"{endpoint}?sample_rate=16000&encoding=pcm_s16le" +
                   $"&speech_model={Uri.EscapeDataString(speechModel)}";
         // Hands-free: a thinking pause ("I've been working on… the bake script") must not end the command
         if (longTurns) url += "&min_turn_silence=800&max_turn_silence=2500";
+        // Reusable session: if Clicky dies while it is open, the server ends it instead of billing up to 3 hours
+        if (lingerSeconds > 0) url += $"&inactivity_timeout={lingerSeconds + 15}";
         if (languages is { Count: > 0 })
             url += "&language_codes=" + Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(languages));
         if (!string.IsNullOrWhiteSpace(prompt))
@@ -87,7 +191,7 @@ public sealed class AssemblyAIService : IAsyncDisposable
         var terms = keyterms?.Where(t => !string.IsNullOrWhiteSpace(t) && t.Length <= 50).Take(100).ToList();
         if (terms is { Count: > 0 })
             url += "&keyterms_prompt=" + Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(terms));
-        _uri = new Uri(url);
+        return new Uri(url);
     }
 
     /// <summary>
@@ -120,7 +224,7 @@ public sealed class AssemblyAIService : IAsyncDisposable
     }
 
     /// <summary>Connects and starts the send/receive loops. Never throws; failures set <see cref="Error"/>.</summary>
-    public Task ConnectAsync() => _connect = ConnectCoreAsync();
+    public Task ConnectAsync() => _reused ? _connect : _connect = ConnectCoreAsync();
 
     private async Task ConnectCoreAsync()
     {
@@ -239,22 +343,89 @@ public sealed class AssemblyAIService : IAsyncDisposable
     /// </summary>
     public async Task<string> FinishAsync(TimeSpan timeout, CancellationToken ct)
     {
-        lock (_turnsLock) _finishing = true;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        TimeSpan Left() // one deadline for all the waits below
+        {
+            var left = timeout - System.Diagnostics.Stopwatch.GetElapsedTime(started);
+            return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+        }
+        Task<Task> done;
+        lock (_turnsLock)
+        {
+            _finishing = true;
+            done = Task.WhenAny(_ended.Task, _finalTurn.Task);
+        }
         _outbox.Writer.TryWrite(new Outgoing(ForceEndpointMessage, WebSocketMessageType.Text));
-        _outbox.Writer.TryWrite(new Outgoing(TerminateMessage, WebSocketMessageType.Text));
-        _outbox.Writer.TryComplete();
 
-        try
+        // A reusable session stays open: no Terminate, the forced final Turn alone ends the press.
+        bool keepOpen = _linger > TimeSpan.Zero && !_reuseOff;
+        bool silent = false; // no turn open at release: nothing more will come
+        TimeSpan Cap(TimeSpan wait) => Left() < wait ? Left() : wait;
+        void Miss()
         {
-            // The forced end of the turn carries the last words; Termination can come a second later.
-            // With no turn open (pause, then release) the server still answers ForceEndpoint with an
-            // empty final Turn (AssemblyAI turn-detection docs, universal-3-6-pro), so this never waits for Termination.
-            await Task.WhenAny(_ended.Task, _finalTurn.Task).WaitAsync(timeout, ct).ConfigureAwait(false);
+            // The server did not answer ForceEndpoint alone: end this session the old way.
+            // Three times in one run: one session per press until restart.
+            keepOpen = false;
+            bool off = Interlocked.Increment(ref _reuseMisses) >= 3;
+            if (off) _reuseOff = true;
+            Logger.Log("[ASR] No final Turn after ForceEndpoint, sending Terminate" +
+                       (off ? " — session reuse is off until Clicky restarts" : ""));
         }
-        catch (TimeoutException)
+        if (keepOpen)
         {
-            Logger.Log($"[ASR] No Termination within {timeout.TotalSeconds:F0} s — using turns received so far");
+            try
+            {
+                await _connect.WaitAsync(Left(), ct).ConfigureAwait(false); // the wait below starts once connected
+                // Measured 2026-11-24 on universal-3-6-pro: when the turn already ended by itself (pause, then
+                // release), ForceEndpoint gets no reply at all, although the docs promise an empty final Turn.
+                bool openAtRelease;
+                lock (_turnsLock) openAtRelease = _turnOpen;
+                var first = openAtRelease ? ForcedTurnWait : SilentGrace;
+                try
+                {
+                    await done.WaitAsync(Cap(first), ct).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    bool openNow;
+                    lock (_turnsLock) openNow = _turnOpen;
+                    if (openAtRelease) Miss();
+                    else if (!openNow)
+                    {
+                        silent = true;
+                        Logger.Log("[ASR] No turn open at release, not waiting for one");
+                    }
+                    else // words came in right at release: wait for them like an open turn
+                    {
+                        try { await done.WaitAsync(Cap(ForcedTurnWait - SilentGrace), ct).ConfigureAwait(false); }
+                        catch (TimeoutException) { Miss(); }
+                    }
+                }
+            }
+            catch (TimeoutException)
+            {
+                keepOpen = false; // still connecting
+            }
         }
+        if (!keepOpen)
+        {
+            _outbox.Writer.TryWrite(new Outgoing(TerminateMessage, WebSocketMessageType.Text));
+            _outbox.Writer.TryComplete();
+        }
+
+        if (!silent)
+        {
+            try
+            {
+                // The forced end of the turn carries the last words; Termination can come a second later.
+                await done.WaitAsync(Left(), ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                Logger.Log($"[ASR] No Termination within {timeout.TotalSeconds:F0} s — using turns received so far");
+            }
+        }
+        CanPark = keepOpen && IsOpen;
 
         var transcript = CombinedTranscript();
         Logger.Log($"[ASR] Final transcript ({_audioFrames} frames sent): \"{transcript}\"");
@@ -331,6 +502,15 @@ public sealed class AssemblyAIService : IAsyncDisposable
                 DateTime started;
                 lock (_turnsLock)
                 {
+                    if (order < _minOrder)
+                    {
+                        // Reused session: a late message for an earlier press. An empty forced turn is still this press's answer.
+                        if (endOfTurn && _finishing && text.Length == 0) _finalTurn.TrySetResult();
+                        break;
+                    }
+                    if (text.Length > 0 && order > _lastTextOrder) _lastTextOrder = order;
+                    if (endOfTurn) _turnOpen = false;
+                    else if (text.Length > 0) _turnOpen = true;
                     _turns[order] = text; // later messages for a turn supersede earlier ones
                     if (endOfTurn && _finishing) _finalTurn.TrySetResult();
                     if (text.Length > 0 && order != _startedOrder) (_startedOrder, _turnStartedAt) = (order, DateTime.UtcNow);
@@ -344,11 +524,12 @@ public sealed class AssemblyAIService : IAsyncDisposable
                 break;
 
             case "Termination":
-                Logger.Log($"[ASR] Termination (audio {node["audio_duration_seconds"]} s)");
+                Logger.Log($"[ASR] {json}"); // whole message: shows the billed session seconds
                 _ended.TrySetResult();
                 break;
 
-            case "SpeechStarted":
+            case "SpeechStarted": // once per turn, right before its first Turn message
+                lock (_turnsLock) _turnOpen = true;
                 break;
 
             case "Error":
@@ -378,7 +559,8 @@ public sealed class AssemblyAIService : IAsyncDisposable
     private void Fail(string reason)
     {
         Error ??= reason;
-        Logger.Error($"[ASR] {reason}");
+        if (_parked) Logger.Log($"[ASR] Idle session ended: {reason}"); // nobody is talking: not an error to show
+        else Logger.Error($"[ASR] {reason}");
     }
 
     /// <summary>Returns at once; the socket closes in the background (see <see cref="CloseAsync"/>).</summary>
