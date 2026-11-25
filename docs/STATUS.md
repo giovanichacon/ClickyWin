@@ -6,7 +6,7 @@
   1. Live check of paced captions (ElevenLabs word-by-word, SAPI `SpeakProgress`) with a real key.
   2. Live check of AssemblyAI session reuse: ~8 quick Ctrl+Win presses, one with a pause before release, read the `[ASR]` log lines.
   3. Accuracy report: real API path never run (Setup > "Keep dictation recordings", dictate, run report).
-  4. Ship 1.1.2: bump `<Version>`, `installerbuild.ps1 -Install`, tag `release-1.1.2`. User said not yet.
+  4. Ship 1.1.2: bump `<Version>`, `installer\build.ps1 -Install`, tag `release-1.1.2`. User said not yet.
 
 ## Next
 - Dictionary terms / prompt tweaks from accuracy report mix-ups ("Clicky", "Wispr Flow").
