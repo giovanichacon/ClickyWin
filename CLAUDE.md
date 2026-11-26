@@ -6,6 +6,8 @@ Hold Ask (Ctrl+Shift+Space) → mic → AssemblyAI → Claude (screenshots) → 
 Hold Dictate (Ctrl+Win) / Write (Alt+Win) / Prompt (Shift+Win, speech → concise AI prompt) → text typed at the caret. Shortcuts via WH_KEYBOARD_LL (`KeyboardHookService`).
 Base: emreyilmaz46/clicky_windows (MIT), remote `upstream`. Work on `main` (old feature branches merged and deleted); tag `v0.0-upstream` = original.
 
+Beginner map (what runs when, where each part lives, how to undo): `docs/APP_MAP.md`. Update it when the code layout changes.
+
 ## Layout
 - `appsettings.json` (shipped, next to exe): prompts, hotkey, endpoints, models, screenshot limits.
 - `%APPDATA%\ClickyWindows\settings.json`: user choices + API keys (DPAPI-encrypted), written by `SetupWindow`.
