@@ -55,7 +55,10 @@ public static partial class Runner
         {
             var name = open.Groups[1].Value.Trim().Trim('"');
             if (Apps.TryGetValue(name, out var app)) target = app;
-            else if (Website().IsMatch(name)) target = name.Contains("://") ? name : "https://" + name;
+            // Scheme checked at the start only: "x.com/a://b" must not reach the shell without https://
+            else if (Website().IsMatch(name))
+                target = name.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                         name.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? name : "https://" + name;
         }
         if (target == null) return false;
 
