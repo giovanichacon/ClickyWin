@@ -57,7 +57,7 @@ Helpers and data shapes:
 ## 4. Where data and settings live
 - `appsettings.json` (ships next to the exe): prompts, hotkeys, endpoints, model names, screenshot limits.
 - `%APPDATA%\ClickyWindows\settings.json`: your choices and API keys (keys encrypted with Windows DPAPI). Written by the Setup window. Example shape: `settings.example.json`.
-- Also in `%APPDATA%\ClickyWindows\`: the log (tray menu opens it), `%APPDATA%\ClickyWindows\ducked.json` (saved volumes, restored after a crash), `%APPDATA%\ClickyWindowsecordings` (only if "Keep dictation recordings" is on).
+- Also in `%APPDATA%\ClickyWindows\`: the log (tray menu opens it), `%APPDATA%\ClickyWindows\ducked.json` (saved volumes, restored after a crash), `%APPDATA%\ClickyWindows\recordings` (only if "Keep dictation recordings" is on).
 - Env var `CLICKY_DATA_DIR`: use another folder for settings, log and lock (for tests next to a running Clicky).
 - Keys are typed into the Setup window only. Never put them in chat, logs or tracked files.
 - Installed copy: `%LOCALAPPDATA%\Programs\Clicky`.
