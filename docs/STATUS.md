@@ -4,7 +4,7 @@
 - Installed copy = 1.1.1. Work is on `main` (merged branches deleted). Version in csproj is 1.1.1; 1.1.2 not shipped.
 - Open items:
   1. Live check of paced captions (ElevenLabs word-by-word, SAPI `SpeakProgress`) with a real key.
-  2. Live check of AssemblyAI session reuse: ~8 quick Ctrl+Win presses, one with a pause before release, read the `[ASR]` log lines.
+  2. Done 2026-11-24 (log 09:30–19:54): AssemblyAI session reuse + pause-then-release fix verified live. 26 presses, transcript 73–618 ms after release (avg 303), paused presses ~440 ms (was ~2 s), 0 "No final Turn after ForceEndpoint", 0 "Too many concurrent". Reuse only fires when presses are <15 s apart (3 of 26).
   3. Accuracy report: real API path never run (Setup > "Keep dictation recordings", dictate, run report).
   4. Ship 1.1.2: bump `<Version>`, `installer\build.ps1 -Install`, tag `release-1.1.2`. User said not yet.
 
